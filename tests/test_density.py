@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from crushguard.density import (
+from guardianeye.density import (
     DensityEstimator,
     block_mean,
     cell_of,
@@ -12,7 +12,7 @@ from crushguard.density import (
     scale_samples,
     smooth_grid,
 )
-from crushguard.detection import Person
+from guardianeye.detection import Person
 
 
 def person_at(x: float, foot_y: float, h_px: float, tid: int | None = None) -> Person:

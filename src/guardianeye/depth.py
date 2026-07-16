@@ -41,3 +41,28 @@ class DepthEstimator:
             return np.ones((h, w), dtype=np.float32)
         norm = (inv - lo) / (hi - lo)
         return (1.0 / (0.1 + 0.9 * norm)).astype(np.float32)
+
+
+def split_sensor_frame(frame_bgr: np.ndarray, side: str) -> tuple[np.ndarray, np.ndarray]:
+    """Split a side-by-side depth-sensor recording into (rgb, relative_distance).
+
+    Kinect-style captures store the depth pane next to the RGB pane in one
+    video; `side` names the pane holding depth ("left" or "right"). Depth is
+    encoded as brightness (brighter = farther, 0 = invalid); invalid pixels
+    are filled with the median valid distance. Output range matches the
+    monocular estimator: [1.0, 10.0], relative units.
+    """
+    import cv2
+
+    h, w = frame_bgr.shape[:2]
+    half = w // 2
+    left, right = frame_bgr[:, :half], frame_bgr[:, half : half * 2]
+    depth_pane, rgb = (left, right) if side == "left" else (right, left)
+
+    gray = cv2.cvtColor(depth_pane, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    valid = gray > 0
+    if valid.any():
+        gray = np.where(valid, gray, float(np.median(gray[valid])))
+    lo, hi = float(gray.min()), float(gray.max())
+    norm = (gray - lo) / (hi - lo) if hi > lo else np.zeros_like(gray)
+    return rgb.copy(), (1.0 + 9.0 * norm).astype(np.float32)

@@ -1,4 +1,4 @@
-"""Command-line interface: `crushguard <video> -o out/`."""
+"""Command-line interface: `guardianeye <video> -o out/`."""
 
 from __future__ import annotations
 
@@ -17,15 +17,20 @@ def _thresholds(text: str) -> tuple[float, float, float]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="crushguard",
-        description="Crowd-crush early warning from aerial/elevated video "
-        "(YOLO detection + depth-calibrated density).",
+        prog="guardianeye",
+        description="AI safety officer for stadium video: collapse detection "
+        "(YOLO pose) + crowd-crush early warning (depth-calibrated density).",
     )
     p.add_argument("input", type=Path, help="input video file")
     p.add_argument(
         "-o", "--outdir", type=Path, default=Path("out"), help="output directory (default: out/)"
     )
-    p.add_argument("--weights", default="yolo11n.pt", help="YOLO weights (default: yolo11n.pt)")
+    p.add_argument(
+        "--weights",
+        default="yolo11n-pose.pt",
+        help="YOLO weights; pose models enable posture-based collapse detection "
+        "(default: yolo11n-pose.pt)",
+    )
     p.add_argument("--conf", type=float, default=0.35, help="detection confidence (default 0.35)")
     p.add_argument("--cell-px", type=int, default=48, help="density grid cell size in px")
     p.add_argument(
@@ -35,6 +40,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-depth",
         action="store_true",
         help="skip the depth model; calibrate scale from body heights only",
+    )
+    p.add_argument(
+        "--sensor-depth",
+        default="none",
+        choices=["none", "left", "right"],
+        help="pane holding real depth-sensor data in a side-by-side capture "
+        "(e.g. Kinect recordings); replaces the monocular depth model",
+    )
+    p.add_argument(
+        "--confirm-secs",
+        type=float,
+        default=2.0,
+        help="continuous down-time before a medical incident confirms (default 2.0)",
     )
     p.add_argument(
         "--thresholds",
@@ -61,9 +79,11 @@ def main(argv: list[str] | None = None) -> None:
         cell_px=args.cell_px,
         depth_every=args.depth_every,
         use_depth=not args.no_depth,
+        sensor_depth=args.sensor_depth,
         thresholds=args.thresholds,
         device=args.device,
         max_frames=args.max_frames,
+        confirm_s=args.confirm_secs,
     )
     main_from_cli(cfg)
 

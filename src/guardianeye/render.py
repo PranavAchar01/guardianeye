@@ -9,6 +9,7 @@ import numpy as np
 
 from .density import DensityGrid
 from .detection import Person
+from .fall import Incident
 from .risk import LEVEL_COLORS_BGR, LEVELS, Zone
 
 HUD_H = 40
@@ -91,59 +92,123 @@ def draw_zones(frame: np.ndarray, zones: list[Zone], levels: np.ndarray, cell_px
         )
 
 
+def _banner(frame: np.ndarray, msg: str, y0: int, pulse: float) -> np.ndarray:
+    w = frame.shape[1]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, y0), (w, y0 + 34), (40, 40, 220), -1)
+    frame = cv2.addWeighted(overlay, pulse, frame, 1 - pulse, 0)
+    scale = 0.7
+    (tw, _), _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, scale, 2)
+    if tw > w - 8:  # shrink to fit narrow frames
+        scale = max(0.35, scale * (w - 8) / tw)
+        (tw, _), _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, scale, 2)
+    cv2.putText(
+        frame,
+        msg,
+        (max((w - tw) // 2, 4), y0 + 24),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    return frame
+
+
 def draw_hud(
     frame: np.ndarray,
     count: int,
     peak_density: float,
     frame_level: int,
     t: float,
-    alert_on: bool,
+    crush_on: bool,
+    incidents: list[Incident],
     frame_idx: int,
 ) -> np.ndarray:
-    """Top status bar plus a pulsing banner while a crush alert is active."""
+    """Top status bar plus pulsing banners while alerts are active.
+
+    A confirmed medical incident outranks the crush banner.
+    """
     h, w = frame.shape[:2]
     out = frame.copy()
     cv2.rectangle(out, (0, 0), (w, HUD_H), (25, 22, 20), -1)
     frame = cv2.addWeighted(out, 0.82, frame, 0.18, 0)
 
     color = LEVEL_COLORS_BGR[frame_level]
-    txt = f"CRUSHGUARD  |  t={t:6.1f}s  |  PEOPLE: {count:3d}  |  PEAK: {peak_density:4.1f} p/m2"
+    if w >= 560:
+        txt = (
+            f"GUARDIANEYE  |  t={t:6.1f}s  |  PEOPLE: {count:3d}  |  "
+            f"PEAK: {peak_density:4.1f} p/m2  |  DOWN: {len(incidents)}"
+        )
+        font_scale = 0.5
+    else:  # compact layout for narrow frames
+        txt = f"t={t:5.1f}s  P:{count}  D:{peak_density:.1f}  DOWN:{len(incidents)}"
+        font_scale = 0.45
     cv2.putText(
-        frame, txt, (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (235, 235, 235), 1, cv2.LINE_AA
+        frame,
+        txt,
+        (10, 26),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        (235, 235, 235),
+        1,
+        cv2.LINE_AA,
     )
     status = LEVELS[frame_level]
-    (tw, _), _ = cv2.getTextSize(status, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    status_scale = 0.6 if w >= 560 else 0.5
+    (tw, _), _ = cv2.getTextSize(status, cv2.FONT_HERSHEY_SIMPLEX, status_scale, 2)
     cv2.rectangle(frame, (w - tw - 26, 7), (w - 8, HUD_H - 7), color, -1)
     cv2.putText(
         frame,
         status,
         (w - tw - 17, 27),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        status_scale,
         (15, 15, 15),
         2,
         cv2.LINE_AA,
     )
 
-    if alert_on:
-        pulse = 0.55 + 0.35 * math.sin(frame_idx * 0.35)
-        banner = frame.copy()
-        y0 = HUD_H + 6
-        cv2.rectangle(banner, (0, y0), (w, y0 + 34), (40, 40, 220), -1)
-        frame = cv2.addWeighted(banner, pulse, frame, 1 - pulse, 0)
-        msg = "!! CRUSH RISK - DISPERSE ZONE NOW !!"
-        (tw, _), _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+    pulse = 0.55 + 0.35 * math.sin(frame_idx * 0.35)
+    y0 = HUD_H + 6
+    if incidents:
+        zones_txt = ",".join(i.zone for i in incidents[:3])
+        frame = _banner(frame, f"!! MEDICAL EMERGENCY - ZONE {zones_txt} !!", y0, pulse)
+        y0 += 40
+    if crush_on:
+        frame = _banner(frame, "!! CRUSH RISK - DISPERSE ZONE NOW !!", y0, pulse)
+    return frame
+
+
+def draw_incidents(frame: np.ndarray, incidents: list[Incident], t: float, frame_idx: int) -> None:
+    """Pulsing marker + down-timer over each confirmed person-down incident."""
+    for inc in incidents:
+        x, y = (int(v) for v in inc.location)
+        radius = 16 + int(4 * math.sin(frame_idx * 0.4))
+        cv2.circle(frame, (x, y), radius, (50, 50, 255), 2, cv2.LINE_AA)
+        cv2.circle(frame, (x, y), 3, (50, 50, 255), -1, cv2.LINE_AA)
+        label = f"PERSON DOWN {max(t - inc.start_t, 0):.1f}s  ZONE {inc.zone}"
+        ly = max(y - radius - 8, 12)
         cv2.putText(
             frame,
-            msg,
-            ((w - tw) // 2, y0 + 24),
+            label,
+            (max(x - 90, 2), ly),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.5,
             (255, 255, 255),
             2,
             cv2.LINE_AA,
         )
-    return frame
+        cv2.putText(
+            frame,
+            label,
+            (max(x - 90, 2), ly),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (50, 50, 255),
+            1,
+            cv2.LINE_AA,
+        )
 
 
 def draw_depth_inset(frame: np.ndarray, distance: np.ndarray | None, scale: float = 0.24) -> None:
@@ -204,19 +269,25 @@ def render_frame(
     thresholds: tuple[float, float, float],
     t: float,
     frame_idx: int,
-    alert_on: bool,
+    crush_on: bool,
+    incidents: list[Incident],
 ) -> np.ndarray:
     out = heatmap_overlay(frame, grid, critical=thresholds[2])
     draw_persons(out, persons, levels, grid)
     draw_zones(out, zones, levels, grid.cell_px)
+    draw_incidents(out, incidents, t, frame_idx)
     draw_depth_inset(out, distance)
     draw_legend(out, thresholds)
+    frame_level = int(levels.max()) if levels.size else 0
+    if incidents:
+        frame_level = 3
     return draw_hud(
         out,
         count=len(persons),
         peak_density=grid.max_density,
-        frame_level=int(levels.max()) if levels.size else 0,
+        frame_level=frame_level,
         t=t,
-        alert_on=alert_on,
+        crush_on=crush_on,
+        incidents=incidents,
         frame_idx=frame_idx,
     )

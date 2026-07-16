@@ -1,4 +1,4 @@
-"""End-to-end video pipeline: detect -> depth -> density -> risk -> render."""
+"""End-to-end video pipeline: detect -> depth -> density/fall -> risk -> render."""
 
 from __future__ import annotations
 
@@ -13,25 +13,29 @@ import cv2
 import numpy as np
 
 from . import density, render, report, risk
-from .detection import PersonDetector
+from .depth import split_sensor_frame
+from .detection import PersonDetector, stitch_ids
+from .fall import FallMonitor
 
 
 @dataclass
 class PipelineConfig:
     input: Path
     outdir: Path = Path("out")
-    weights: str = "yolo11n.pt"
+    weights: str = "yolo11n-pose.pt"
     conf: float = 0.35
     cell_px: int = 48
-    depth_every: int = 8  # recompute the depth map every N frames
+    depth_every: int = 8  # recompute the monocular depth map every N frames
     use_depth: bool = True
+    sensor_depth: str = "none"  # "left"/"right": pane of a side-by-side sensor capture
     thresholds: tuple[float, float, float] = risk.DEFAULT_THRESHOLDS
     device: str = "auto"
     max_frames: int | None = None
     ema_alpha: float = 0.45
     smooth_sigma: float = 0.8
-    fire_after_s: float = 0.8  # sustained CRITICAL time before the alert fires
+    fire_after_s: float = 0.8  # sustained CRITICAL time before the crush alert fires
     clear_after_s: float = 1.2
+    confirm_s: float = 2.0  # continuous down-time before a medical incident confirms
 
 
 @dataclass
@@ -42,6 +46,7 @@ class FrameMetrics:
     max_density: float
     mean_density: float
     level: int
+    incidents: int
     zones: list[dict] = field(default_factory=list)
 
 
@@ -87,7 +92,7 @@ def _h264_encode(raw: Path, final: Path) -> bool:
 def run(cfg: PipelineConfig) -> dict:
     cfg.outdir.mkdir(parents=True, exist_ok=True)
     device = resolve_device(cfg.device)
-    print(f"[crushguard] device={device} input={cfg.input}", flush=True)
+    print(f"[guardianeye] device={device} input={cfg.input}", flush=True)
 
     cap = cv2.VideoCapture(str(cfg.input))
     if not cap.isOpened():
@@ -95,30 +100,34 @@ def run(cfg: PipelineConfig) -> dict:
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if cfg.sensor_depth in ("left", "right"):
+        width = width // 2  # output is the RGB pane only
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     if cfg.max_frames:
         total = min(total, cfg.max_frames)
 
     detector = PersonDetector(weights=cfg.weights, conf=cfg.conf, device=device)
     depth_estimator = None
-    if cfg.use_depth:
+    if cfg.use_depth and cfg.sensor_depth == "none":
         try:
             from .depth import DepthEstimator
 
             depth_estimator = DepthEstimator(device=device)
         except Exception as e:  # noqa: BLE001 - degrade gracefully, keep processing
             print(
-                f"[crushguard] depth model unavailable ({e}); falling back to detection-only scale",
+                f"[guardianeye] depth model unavailable ({e}); "
+                "falling back to detection-only scale",
                 flush=True,
             )
 
     estimator = density.DensityEstimator(
         cell_px=cfg.cell_px, ema_alpha=cfg.ema_alpha, smooth_sigma=cfg.smooth_sigma
     )
-    alerts = risk.AlertTracker(
+    crush_alerts = risk.AlertTracker(
         fire_after=max(1, int(cfg.fire_after_s * fps)),
         clear_after=max(1, int(cfg.clear_after_s * fps)),
     )
+    falls = FallMonitor(fps=fps, confirm_s=cfg.confirm_s, cell_px=cfg.cell_px)
 
     raw_path = cfg.outdir / "annotated_raw.mp4"
     writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
@@ -139,7 +148,9 @@ def run(cfg: PipelineConfig) -> dict:
             break
         t = frame_idx / fps
 
-        persons = detector.track(frame)
+        if cfg.sensor_depth in ("left", "right"):
+            frame, distance = split_sensor_frame(frame, cfg.sensor_depth)
+        persons = stitch_ids(detector.track(frame), tracks_prev)
         if depth_estimator is not None and frame_idx % cfg.depth_every == 0:
             distance = depth_estimator.relative_distance(frame)
 
@@ -148,8 +159,11 @@ def run(cfg: PipelineConfig) -> dict:
         cell_speeds = risk.speed_samples_ms(tracks_prev, persons, frame_idx, fps, grid)
         levels = risk.escalate_stagnation(levels, grid.density, cell_speeds)
         zones = risk.find_zones(levels, grid.density, cfg.cell_px)
+        incidents = falls.update(persons, frame_idx, t, frame.shape)
         frame_level = int(levels.max()) if levels.size else 0
-        alert_on = alerts.update(frame_level, grid.max_density, t)
+        if incidents:
+            frame_level = 3
+        crush_on = crush_alerts.update(int(levels.max()) if levels.size else 0, grid.max_density, t)
 
         annotated = render.render_frame(
             frame,
@@ -161,7 +175,8 @@ def run(cfg: PipelineConfig) -> dict:
             cfg.thresholds,
             t,
             frame_idx,
-            alert_on,
+            crush_on,
+            incidents,
         )
         writer.write(annotated)
 
@@ -173,6 +188,7 @@ def run(cfg: PipelineConfig) -> dict:
                 max_density=round(grid.max_density, 3),
                 mean_density=round(grid.occupied_mean, 3),
                 level=frame_level,
+                incidents=len(incidents),
                 zones=[
                     {"id": z.zone_id, "level": z.level, "peak": round(z.peak_density, 2)}
                     for z in zones
@@ -183,9 +199,9 @@ def run(cfg: PipelineConfig) -> dict:
         if frame_idx % 25 == 0 or frame_idx == total:
             el = time.perf_counter() - t_start
             print(
-                f"[crushguard] {frame_idx}/{total or '?'} frames  "
+                f"[guardianeye] {frame_idx}/{total or '?'} frames  "
                 f"people={len(persons):3d}  peak={grid.max_density:4.1f} p/m2  "
-                f"({frame_idx / el:.1f} fps)",
+                f"down={len(incidents)}  ({frame_idx / el:.1f} fps)",
                 flush=True,
             )
 
@@ -193,7 +209,8 @@ def run(cfg: PipelineConfig) -> dict:
     writer.release()
     elapsed = time.perf_counter() - t_start
     last_t = metrics[-1].t if metrics else 0.0
-    alerts.finalize(last_t)
+    crush_alerts.finalize(last_t)
+    falls.finalize(last_t)
 
     final_path = cfg.outdir / "annotated.mp4"
     if _h264_encode(raw_path, final_path):
@@ -207,20 +224,37 @@ def run(cfg: PipelineConfig) -> dict:
         "fps": fps,
         "proc_fps": len(metrics) / elapsed if elapsed > 0 else 0.0,
         "thresholds": list(cfg.thresholds),
-        "depth_used": depth_estimator is not None,
+        "depth_source": (
+            "sensor"
+            if cfg.sensor_depth in ("left", "right")
+            else "monocular"
+            if depth_estimator is not None
+            else "none"
+        ),
         "peak_count": max((m.count for m in metrics), default=0),
         "peak_density": max((m.max_density for m in metrics), default=0.0),
         "worst_level": max((m.level for m in metrics), default=0),
         "alerts": [
             {"start_t": a.start_t, "end_t": a.end_t, "peak_density": a.peak_density}
-            for a in alerts.episodes
+            for a in crush_alerts.episodes
+        ],
+        "incidents": [
+            {
+                "track_id": i.track_id,
+                "start_t": round(i.start_t, 2),
+                "confirmed_t": round(i.confirmed_t, 2) if i.confirmed_t is not None else None,
+                "end_t": round(i.end_t, 2) if i.end_t is not None else None,
+                "zone": i.zone,
+                "peak_down_s": round(i.peak_down_s, 2),
+            }
+            for i in falls.episodes
         ],
         "frames": [vars(m) for m in metrics],
     }
     report.write_metrics(cfg.outdir / "metrics.json", summary)
     report.write_report(cfg.outdir / "report.html", summary, final_path.name)
     print(
-        f"[crushguard] done: {len(metrics)} frames in {elapsed:.1f}s "
+        f"[guardianeye] done: {len(metrics)} frames in {elapsed:.1f}s "
         f"-> {final_path}, report.html, metrics.json",
         flush=True,
     )
@@ -231,5 +265,5 @@ def main_from_cli(cfg: PipelineConfig) -> dict:
     try:
         return run(cfg)
     except KeyboardInterrupt:
-        print("[crushguard] interrupted", file=sys.stderr)
+        print("[guardianeye] interrupted", file=sys.stderr)
         raise SystemExit(130) from None

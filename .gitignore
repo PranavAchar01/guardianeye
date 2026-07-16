@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+out/
+*.pt
+demo/*.mp4
+demo/*.avi
+.DS_Store
