@@ -208,7 +208,8 @@ class FallMonitor:
         ]:
             st = self._tracks.pop(tid)
             if st.incident is not None and st.incident.end_t is None:
-                st.incident.end_t = t
+                # The person was lost when last seen, not when we gave up.
+                st.incident.end_t = st.last_seen / self.fps
                 st.incident.recovered = False  # lost, not seen upright
 
         return [

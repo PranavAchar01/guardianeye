@@ -185,7 +185,7 @@ class DensityEstimator:
 
         mpp = mpp_grid(persons, distance, frame_shape, self.cell_px)
         if mpp.any():
-            self._last_mpp = mpp
+            self._last_mpp = mpp.copy()
         elif self._last_mpp is not None and self._last_mpp.shape == gshape:
             # No upright ruler this frame (e.g. everyone is down): keep the
             # previous calibration instead of zeroing the density map.
