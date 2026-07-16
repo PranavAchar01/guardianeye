@@ -36,6 +36,35 @@ def test_scale_samples_skip_tiny_boxes():
     assert mpp == pytest.approx(1.7 / 85.0)
 
 
+def test_scale_samples_skip_lying_people():
+    lying = Person(box=(0, 0, 120, 45), conf=0.9, track_id=1)  # wide box
+    standing = person_at(100, 100, 85.0)
+    samples = scale_samples([lying, standing])
+    assert len(samples) == 1
+    assert samples[0][2] == pytest.approx(1.7 / 85.0)
+
+
+def test_estimator_keeps_last_calibration_when_everyone_is_down():
+    est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
+    distance = np.ones((96, 96), dtype=np.float32)
+    est.update([person_at(20, 30, 85.0)], distance, (96, 96))
+    lying = Person(box=(0, 0, 120, 45), conf=0.9, track_id=1)  # no upright ruler
+    grid = est.update([lying], distance, (96, 96))
+    assert grid.mpp[0, 0] == pytest.approx(0.02)  # previous frame's scale
+    assert grid.max_density > 0  # the down person still counts toward density
+
+
+def test_edge_cells_use_true_pixel_area():
+    """A person in a half-width edge cell must not have their density halved."""
+    est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
+    distance = np.ones((48, 72), dtype=np.float32)  # right column is 24px wide
+    ruler = person_at(10, 30, 85.0)  # mpp = 0.02 everywhere
+    inside = person_at(60, 30, 85.0)  # foot in the 24px-wide edge cell
+    grid = est.update([ruler, inside], distance, (48, 72))
+    edge_area_m2 = (48 * 0.02) * (24 * 0.02)
+    assert grid.density[0, 1] == pytest.approx(1 / edge_area_m2, rel=1e-6)
+
+
 def test_mpp_grid_uniform_depth_matches_median_sample():
     frame_shape = (576, 768)
     distance = np.ones(frame_shape, dtype=np.float32) * 3.0

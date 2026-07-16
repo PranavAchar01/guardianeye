@@ -47,11 +47,19 @@ def write_report(path: Path, summary: dict, video_filename: str) -> None:
         )
         or '<tr><td colspan="4">No crush episodes detected</td></tr>'
     )
+
+    def _outcome(inc: dict) -> str:
+        if inc["end_t"] is None:
+            return "<b>ongoing at video end</b>"
+        if inc.get("recovered"):
+            return f"recovered {inc['end_t']:.1f}s"
+        return f"track lost {inc['end_t']:.1f}s"
+
     incident_rows = (
         "".join(
             f"<tr><td>{i + 1}</td><td>{inc['start_t']:.1f}s</td>"
             f"<td>{inc['confirmed_t']:.1f}s</td>"
-            f"<td>{'ongoing' if inc['end_t'] is None else f'{inc["end_t"]:.1f}s'}</td>"
+            f"<td>{_outcome(inc)}</td>"
             f"<td>{inc['zone']}</td><td>{inc['peak_down_s']:.1f}s</td></tr>"
             for i, inc in enumerate(incidents)
         )
@@ -90,7 +98,7 @@ def write_report(path: Path, summary: dict, video_filename: str) -> None:
 <h2>People in frame</h2>{sparkline_svg([float(c) for c in counts], color="#5aa9e6", label="count")}
 <h2>Peak density</h2>{sparkline_svg(peaks, color="#e05252", label="people/m&sup2;")}
 <h2>Person-down incidents</h2>
-<table><tr><th>#</th><th>First down</th><th>Confirmed</th><th>Recovered</th><th>Zone</th>
+<table><tr><th>#</th><th>First down</th><th>Confirmed</th><th>Outcome</th><th>Zone</th>
 <th>Max down-time</th></tr>{incident_rows}</table>
 <h2>Crush episodes</h2>
 <table><tr><th>#</th><th>Start</th><th>End</th><th>Peak density</th></tr>{alert_rows}</table>

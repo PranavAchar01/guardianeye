@@ -20,6 +20,7 @@ from .detection import Person
 
 REF_HEIGHT_M = 1.7  # assumed mean standing height of a detected person
 MIN_BOX_PX = 8.0  # boxes shorter than this are too noisy to use as rulers
+MAX_RULER_ASPECT = 0.8  # wider boxes are lying/seated people, not vertical rulers
 
 
 @dataclass
@@ -71,12 +72,29 @@ def block_mean(arr: np.ndarray, cell_px: int, gshape: tuple[int, int]) -> np.nda
 
 
 def scale_samples(persons: list[Person]) -> list[tuple[float, float, float]]:
-    """(x, y, meters-per-pixel) at each usable person's foot point."""
-    return [
-        (p.foot[0], p.foot[1], REF_HEIGHT_M / p.height_px)
-        for p in persons
-        if p.height_px >= MIN_BOX_PX
-    ]
+    """(x, y, meters-per-pixel) at each usable person's foot point.
+
+    Only upright detections serve as rulers: a lying or seated person's box
+    height is their body width, which would corrupt the calibration.
+    """
+    out = []
+    for p in persons:
+        if p.height_px < MIN_BOX_PX:
+            continue
+        width = p.box[2] - p.box[0]
+        if width / p.height_px > MAX_RULER_ASPECT:
+            continue
+        out.append((p.foot[0], p.foot[1], REF_HEIGHT_M / p.height_px))
+    return out
+
+
+def cell_areas_px(frame_shape: tuple[int, ...], cell_px: int) -> np.ndarray:
+    """True pixel area of each grid cell (edge cells are partial)."""
+    h, w = frame_shape[0], frame_shape[1]
+    rows, cols = grid_shape(frame_shape, cell_px)
+    heights = np.minimum(cell_px, h - np.arange(rows) * cell_px).clip(min=1)
+    widths = np.minimum(cell_px, w - np.arange(cols) * cell_px).clip(min=1)
+    return np.outer(heights, widths).astype(np.float64)
 
 
 def mpp_grid(
@@ -151,6 +169,7 @@ class DensityEstimator:
         self.ema_alpha = ema_alpha
         self.smooth_sigma = smooth_sigma
         self._ema: np.ndarray | None = None
+        self._last_mpp: np.ndarray | None = None
 
     def update(
         self,
@@ -165,7 +184,13 @@ class DensityEstimator:
             counts[r, c] += 1.0
 
         mpp = mpp_grid(persons, distance, frame_shape, self.cell_px)
-        cell_area = (self.cell_px * mpp) ** 2  # m^2 per cell
+        if mpp.any():
+            self._last_mpp = mpp
+        elif self._last_mpp is not None and self._last_mpp.shape == gshape:
+            # No upright ruler this frame (e.g. everyone is down): keep the
+            # previous calibration instead of zeroing the density map.
+            mpp = self._last_mpp
+        cell_area = cell_areas_px(frame_shape, self.cell_px) * mpp**2  # m^2 per cell
         density = np.zeros(gshape, dtype=np.float64)
         valid = cell_area > 1e-9
         density[valid] = counts[valid] / cell_area[valid]

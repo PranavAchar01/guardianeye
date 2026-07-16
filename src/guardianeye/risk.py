@@ -140,20 +140,27 @@ class AlertTracker:
     _cold: int = 0
     _start_t: float = 0.0
     _peak: float = 0.0
+    _streak_start_t: float = 0.0
+    _streak_peak: float = 0.0
 
     def update(self, frame_level: int, peak_density: float, t: float) -> bool:
         """Feed one frame; returns whether the alert is currently active."""
         if frame_level >= 3:
+            if self._hot == 0:
+                self._streak_start_t = t
+                self._streak_peak = peak_density
             self._hot += 1
             self._cold = 0
+            self._streak_peak = max(self._streak_peak, peak_density)
         else:
             self._cold += 1
             self._hot = 0
 
         if not self.active and self._hot >= self.fire_after:
+            # The episode began when the hot streak began, not when it fired.
             self.active = True
-            self._start_t = t
-            self._peak = peak_density
+            self._start_t = self._streak_start_t
+            self._peak = self._streak_peak
         elif self.active:
             self._peak = max(self._peak, peak_density)
             if self._cold >= self.clear_after:

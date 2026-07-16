@@ -41,8 +41,17 @@ def heatmap_overlay(frame: np.ndarray, grid: DensityGrid, critical: float) -> np
     """Alpha-blend a density heatmap onto the frame (hotter = denser)."""
     h, w = frame.shape[:2]
     norm = np.clip(grid.density / max(critical, 1e-6), 0.0, 1.0)
-    norm_full = cv2.resize(norm.astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
-    norm_full = np.clip(norm_full, 0.0, 1.0)
+    # Upscale to the grid's true pixel extent (edge cells may overhang the
+    # frame), then crop — resizing straight to (w, h) would shift the heat
+    # relative to the people and zone boxes whenever cell_px doesn't divide
+    # the frame dimensions.
+    rows, cols = norm.shape
+    full = cv2.resize(
+        norm.astype(np.float32),
+        (cols * grid.cell_px, rows * grid.cell_px),
+        interpolation=cv2.INTER_CUBIC,
+    )
+    norm_full = np.clip(full[:h, :w], 0.0, 1.0)
     color = _HEAT_LUT[(norm_full * 255).astype(np.uint8)]
     alpha = np.where(norm_full > 0.06, 0.15 + 0.45 * norm_full, 0.0)[..., None]
     return (frame * (1 - alpha) + color * alpha).astype(np.uint8)

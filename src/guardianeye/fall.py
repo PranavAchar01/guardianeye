@@ -78,16 +78,31 @@ def posture_of(person: Person) -> str:
     return POSTURE_UNKNOWN
 
 
+def _row_letters(r: int) -> str:
+    """Spreadsheet-style row name: 0 -> A, 25 -> Z, 26 -> AA (never ambiguous)."""
+    n = r + 1
+    s = ""
+    while n:
+        n, rem = divmod(n - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
 def zone_label(x: float, y: float, cell_px: int, frame_shape: tuple[int, ...]) -> str:
     """Human-radioable grid zone like 'B7' (rows lettered, columns numbered)."""
     gshape = grid_shape(frame_shape, cell_px)
     r, c = cell_of(x, y, cell_px, gshape)
-    return f"{chr(65 + r % 26)}{c + 1}"
+    return f"{_row_letters(r)}{c + 1}"
 
 
 @dataclass
 class Incident:
-    """One person-down episode."""
+    """One person-down episode.
+
+    `end_t is None` means the incident was still open when the video ended
+    ("ongoing"); `recovered` distinguishes a person seen upright again from a
+    track that was simply lost (occlusion, carried away).
+    """
 
     track_id: int
     start_t: float  # first lying observation of the streak
@@ -95,6 +110,7 @@ class Incident:
     location: tuple[float, float]
     confirmed_t: float | None = None
     end_t: float | None = None
+    recovered: bool = False
     peak_down_s: float = 0.0
 
     @property
@@ -154,6 +170,7 @@ class FallMonitor:
                 if st.upright_frames >= release_frames:
                     if st.incident is not None:
                         st.incident.end_t = t
+                        st.incident.recovered = True
                         st.incident = None
                     st.lying_frames = 0
                     st.streak_start_t = None
@@ -182,15 +199,20 @@ class FallMonitor:
                 st.incident.zone = zone_label(x, y, self.cell_px, frame_shape)
                 st.incident.peak_down_s = max(st.incident.peak_down_s, down_s)
 
+        # Expire tracks not seen for a while: an incident whose person the
+        # tracker lost must not blare MEDICAL EMERGENCY forever, and stale
+        # state must not accumulate over long videos.
+        expire_frames = max(release_frames, int(2.0 * self.fps))
+        for tid in [
+            tid for tid, st in self._tracks.items() if frame_idx - st.last_seen > expire_frames
+        ]:
+            st = self._tracks.pop(tid)
+            if st.incident is not None and st.incident.end_t is None:
+                st.incident.end_t = t
+                st.incident.recovered = False  # lost, not seen upright
+
         return [
             st.incident
             for st in self._tracks.values()
             if st.incident is not None and st.incident.active
         ]
-
-    def finalize(self, t: float) -> None:
-        """Close any incident still open when the video ends."""
-        for st in self._tracks.values():
-            if st.incident is not None and st.incident.end_t is None:
-                st.incident.end_t = t
-                st.incident = None

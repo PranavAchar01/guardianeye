@@ -21,9 +21,19 @@ SUMMARY = {
             "start_t": 2.0,
             "confirmed_t": 4.0,
             "end_t": None,
+            "recovered": False,
             "zone": "B3",
             "peak_down_s": 3.1,
-        }
+        },
+        {
+            "track_id": 7,
+            "start_t": 0.5,
+            "confirmed_t": 1.5,
+            "end_t": 2.5,
+            "recovered": True,
+            "zone": "A1",
+            "peak_down_s": 1.8,
+        },
     ],
     "frames": [
         {
@@ -74,7 +84,8 @@ def test_report_contains_key_sections(tmp_path):
     assert "GuardianEye" in html
     assert "annotated.mp4" in html
     assert "B3" in html  # incident zone
-    assert "ongoing" in html  # open incident end time
+    assert "ongoing at video end" in html  # open incident is never "recovered"
+    assert "recovered 2.5s" in html  # closed incident shows recovery time
     assert "5.6" in html  # crush episode peak
     assert "CRITICAL" in html  # worst level
 

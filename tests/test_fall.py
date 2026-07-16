@@ -54,6 +54,12 @@ def test_zone_label():
     assert zone_label(300, 200, 48, FRAME_SHAPE) == "E7"
 
 
+def test_zone_label_rows_never_wrap_ambiguously():
+    tall = (2160, 3840)  # 4K portrait-ish: 45 grid rows
+    assert zone_label(0, 26 * 48 + 1, 48, tall) == "AA1"
+    assert zone_label(0, 27 * 48 + 1, 48, tall) == "AB1"
+
+
 def _feed(monitor, person, n, start_frame, fps):
     incidents = []
     for k in range(n):
@@ -98,6 +104,7 @@ def test_incident_closes_on_recovery_and_is_recorded():
     assert len(mon.episodes) == 1
     ep = mon.episodes[0]
     assert ep.end_t is not None
+    assert ep.recovered is True
     assert ep.peak_down_s >= 0.9
 
 
@@ -112,11 +119,31 @@ def test_occlusion_unknown_frames_hold_the_streak():
     assert len(active) == 1  # 25 + 6 lying frames > 1s despite unknown gap
 
 
-def test_finalize_closes_open_incidents():
+def test_incident_still_open_at_video_end_stays_ongoing():
     fps = 30.0
     mon = FallMonitor(fps=fps, confirm_s=0.5)
     lying = kp_person(20, 50, 80, 50)
-    _feed(mon, lying, 30, 0, fps)
-    mon.finalize(1.0)
+    active, _ = _feed(mon, lying, 30, 0, fps)
+    assert len(active) == 1
     assert len(mon.episodes) == 1
-    assert mon.episodes[0].end_t == 1.0
+    # Never stamp a recovery the camera didn't see.
+    assert mon.episodes[0].end_t is None
+    assert mon.episodes[0].recovered is False
+
+
+def test_lost_track_expires_incident_as_not_recovered():
+    fps = 30.0
+    mon = FallMonitor(fps=fps, confirm_s=0.5, release_s=0.2)
+    lying = kp_person(20, 50, 80, 50, tid=1)
+    other = kp_person(50, 20, 50, 80, tid=2)  # unrelated standing person
+    active, nxt = _feed(mon, lying, 30, 0, fps)
+    assert len(active) == 1
+    # Track 1 vanishes; only track 2 is seen for well past the expiry window.
+    for k in range(90):
+        f = nxt + k
+        active = mon.update([other], f, f / fps, FRAME_SHAPE)
+    assert active == []  # no eternal MEDICAL EMERGENCY from a lost track
+    assert len(mon.episodes) == 1
+    ep = mon.episodes[0]
+    assert ep.end_t is not None
+    assert ep.recovered is False

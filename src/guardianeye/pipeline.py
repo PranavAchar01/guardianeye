@@ -216,7 +216,8 @@ def run(cfg: PipelineConfig) -> dict:
     elapsed = time.perf_counter() - t_start
     last_t = metrics[-1].t if metrics else 0.0
     crush_alerts.finalize(last_t)
-    falls.finalize(last_t)
+    # Incidents still open here stay end_t=None: a person still down when the
+    # video ends must be reported as ongoing, never as recovered.
 
     final_path = cfg.outdir / "annotated.mp4"
     if _h264_encode(raw_path, final_path):
@@ -250,6 +251,7 @@ def run(cfg: PipelineConfig) -> dict:
                 "start_t": round(i.start_t, 2),
                 "confirmed_t": round(i.confirmed_t, 2) if i.confirmed_t is not None else None,
                 "end_t": round(i.end_t, 2) if i.end_t is not None else None,
+                "recovered": i.recovered,
                 "zone": i.zone,
                 "peak_down_s": round(i.peak_down_s, 2),
             }

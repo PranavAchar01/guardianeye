@@ -67,7 +67,8 @@ def test_alert_tracker_hysteresis():
     assert len(at.episodes) == 1
     ep = at.episodes[0]
     assert ep.peak_density == 7.0
-    assert ep.start_t == fps_t[5]
+    # The episode starts when the firing hot-streak began, not when it fired.
+    assert ep.start_t == fps_t[3]
 
 
 def test_alert_tracker_finalize_closes_active_episode():
