@@ -157,7 +157,13 @@ def run(cfg: PipelineConfig) -> dict:
         grid = estimator.update(persons, distance, frame.shape)
         levels = risk.classify(grid.density, cfg.thresholds)
         cell_speeds = risk.speed_samples_ms(tracks_prev, persons, frame_idx, fps, grid)
-        levels = risk.escalate_stagnation(levels, grid.density, cell_speeds)
+        levels = risk.escalate_stagnation(
+            levels,
+            grid.density,
+            cell_speeds,
+            # keep the stagnation floor consistent with custom thresholds
+            density_floor=(cfg.thresholds[1] + cfg.thresholds[2]) / 2,
+        )
         zones = risk.find_zones(levels, grid.density, cfg.cell_px)
         incidents = falls.update(persons, frame_idx, t, frame.shape)
         frame_level = int(levels.max()) if levels.size else 0
