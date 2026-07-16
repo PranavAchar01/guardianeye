@@ -1,0 +1,235 @@
+"""End-to-end video pipeline: detect -> depth -> density -> risk -> render."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from . import density, render, report, risk
+from .detection import PersonDetector
+
+
+@dataclass
+class PipelineConfig:
+    input: Path
+    outdir: Path = Path("out")
+    weights: str = "yolo11n.pt"
+    conf: float = 0.35
+    cell_px: int = 48
+    depth_every: int = 8  # recompute the depth map every N frames
+    use_depth: bool = True
+    thresholds: tuple[float, float, float] = risk.DEFAULT_THRESHOLDS
+    device: str = "auto"
+    max_frames: int | None = None
+    ema_alpha: float = 0.45
+    smooth_sigma: float = 0.8
+    fire_after_s: float = 0.8  # sustained CRITICAL time before the alert fires
+    clear_after_s: float = 1.2
+
+
+@dataclass
+class FrameMetrics:
+    frame: int
+    t: float
+    count: int
+    max_density: float
+    mean_density: float
+    level: int
+    zones: list[dict] = field(default_factory=list)
+
+
+def resolve_device(pref: str) -> str:
+    if pref != "auto":
+        return pref
+    import torch
+
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _h264_encode(raw: Path, final: Path) -> bool:
+    """Re-encode to browser-playable H.264 if ffmpeg is available."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return False
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(raw),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(final),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
+def run(cfg: PipelineConfig) -> dict:
+    cfg.outdir.mkdir(parents=True, exist_ok=True)
+    device = resolve_device(cfg.device)
+    print(f"[crushguard] device={device} input={cfg.input}", flush=True)
+
+    cap = cv2.VideoCapture(str(cfg.input))
+    if not cap.isOpened():
+        raise SystemExit(f"cannot open video: {cfg.input}")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if cfg.max_frames:
+        total = min(total, cfg.max_frames)
+
+    detector = PersonDetector(weights=cfg.weights, conf=cfg.conf, device=device)
+    depth_estimator = None
+    if cfg.use_depth:
+        try:
+            from .depth import DepthEstimator
+
+            depth_estimator = DepthEstimator(device=device)
+        except Exception as e:  # noqa: BLE001 - degrade gracefully, keep processing
+            print(
+                f"[crushguard] depth model unavailable ({e}); falling back to detection-only scale",
+                flush=True,
+            )
+
+    estimator = density.DensityEstimator(
+        cell_px=cfg.cell_px, ema_alpha=cfg.ema_alpha, smooth_sigma=cfg.smooth_sigma
+    )
+    alerts = risk.AlertTracker(
+        fire_after=max(1, int(cfg.fire_after_s * fps)),
+        clear_after=max(1, int(cfg.clear_after_s * fps)),
+    )
+
+    raw_path = cfg.outdir / "annotated_raw.mp4"
+    writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        raise SystemExit(f"cannot open video writer: {raw_path}")
+
+    distance: np.ndarray | None = None
+    tracks_prev: dict[int, tuple[float, float, int]] = {}
+    metrics: list[FrameMetrics] = []
+    t_start = time.perf_counter()
+    frame_idx = 0
+
+    while True:
+        if cfg.max_frames is not None and frame_idx >= cfg.max_frames:
+            break
+        ok, frame = cap.read()
+        if not ok:
+            break
+        t = frame_idx / fps
+
+        persons = detector.track(frame)
+        if depth_estimator is not None and frame_idx % cfg.depth_every == 0:
+            distance = depth_estimator.relative_distance(frame)
+
+        grid = estimator.update(persons, distance, frame.shape)
+        levels = risk.classify(grid.density, cfg.thresholds)
+        cell_speeds = risk.speed_samples_ms(tracks_prev, persons, frame_idx, fps, grid)
+        levels = risk.escalate_stagnation(levels, grid.density, cell_speeds)
+        zones = risk.find_zones(levels, grid.density, cfg.cell_px)
+        frame_level = int(levels.max()) if levels.size else 0
+        alert_on = alerts.update(frame_level, grid.max_density, t)
+
+        annotated = render.render_frame(
+            frame,
+            persons,
+            grid,
+            levels,
+            zones,
+            distance,
+            cfg.thresholds,
+            t,
+            frame_idx,
+            alert_on,
+        )
+        writer.write(annotated)
+
+        metrics.append(
+            FrameMetrics(
+                frame=frame_idx,
+                t=round(t, 3),
+                count=len(persons),
+                max_density=round(grid.max_density, 3),
+                mean_density=round(grid.occupied_mean, 3),
+                level=frame_level,
+                zones=[
+                    {"id": z.zone_id, "level": z.level, "peak": round(z.peak_density, 2)}
+                    for z in zones
+                ],
+            )
+        )
+        frame_idx += 1
+        if frame_idx % 25 == 0 or frame_idx == total:
+            el = time.perf_counter() - t_start
+            print(
+                f"[crushguard] {frame_idx}/{total or '?'} frames  "
+                f"people={len(persons):3d}  peak={grid.max_density:4.1f} p/m2  "
+                f"({frame_idx / el:.1f} fps)",
+                flush=True,
+            )
+
+    cap.release()
+    writer.release()
+    elapsed = time.perf_counter() - t_start
+    last_t = metrics[-1].t if metrics else 0.0
+    alerts.finalize(last_t)
+
+    final_path = cfg.outdir / "annotated.mp4"
+    if _h264_encode(raw_path, final_path):
+        raw_path.unlink()
+    else:
+        raw_path.rename(final_path)
+
+    summary = {
+        "input": str(cfg.input),
+        "n_frames": len(metrics),
+        "fps": fps,
+        "proc_fps": len(metrics) / elapsed if elapsed > 0 else 0.0,
+        "thresholds": list(cfg.thresholds),
+        "depth_used": depth_estimator is not None,
+        "peak_count": max((m.count for m in metrics), default=0),
+        "peak_density": max((m.max_density for m in metrics), default=0.0),
+        "worst_level": max((m.level for m in metrics), default=0),
+        "alerts": [
+            {"start_t": a.start_t, "end_t": a.end_t, "peak_density": a.peak_density}
+            for a in alerts.episodes
+        ],
+        "frames": [vars(m) for m in metrics],
+    }
+    report.write_metrics(cfg.outdir / "metrics.json", summary)
+    report.write_report(cfg.outdir / "report.html", summary, final_path.name)
+    print(
+        f"[crushguard] done: {len(metrics)} frames in {elapsed:.1f}s "
+        f"-> {final_path}, report.html, metrics.json",
+        flush=True,
+    )
+    return summary
+
+
+def main_from_cli(cfg: PipelineConfig) -> dict:
+    try:
+        return run(cfg)
+    except KeyboardInterrupt:
+        print("[crushguard] interrupted", file=sys.stderr)
+        raise SystemExit(130) from None
