@@ -48,9 +48,11 @@ bash scripts/fetch_demo.sh
 # left pane = Kinect depth, right pane = RGB):
 uv run guardianeye demo/fall-01.mp4 -o out/fall01 --sensor-depth left --confirm-secs 1.0
 
-# Crowd density + tracking on an elevated pedestrian scene
-# (sparse crowd, so demo thresholds are lowered to exercise the alert path):
-uv run guardianeye demo/pedestrians.avi -o out/peds --thresholds 0.6,1.2,2.0
+# Crowd density + tracking on an elevated pedestrian scene. Wide scenes with
+# small/distant people need the detect weights (the nano *pose* model misses
+# them; posture then falls back to box aspect, so collapse detection still
+# works). Sparse crowd, so demo thresholds are lowered to exercise the alerts:
+uv run guardianeye demo/pedestrians.avi -o out/peds --weights yolo11n.pt --thresholds 0.6,1.2,2.0
 
 # Any drone/CCTV video, defaults (real-world thresholds 2 / 3.5 / 5 p/m²):
 uv run guardianeye your_footage.mp4 -o out/run1
