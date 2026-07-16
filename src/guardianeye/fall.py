@@ -51,7 +51,12 @@ def _torso_posture(person: Person) -> str:
     return POSTURE_UNKNOWN
 
 
-def posture_of(person: Person) -> str:
+ASPECT_LYING_WITH_KP = 1.25  # pose model ran: a wide box is strong evidence
+ASPECT_LYING_NO_KP = 1.55  # detect-only weights: occluded torsos in crowds
+# produce wide boxes, so demand stronger geometry before calling it lying
+
+
+def posture_of(person: Person, frame_shape: tuple[int, ...] | None = None) -> str:
     """Classify one detection as standing / lying / unknown.
 
     Box aspect ratio is the primary signal: a genuinely standing person is
@@ -59,13 +64,20 @@ def posture_of(person: Person) -> str:
     the keypoint torso angle on a person lying toward the camera. Keypoints
     decide only the ambiguous middle, and a keypoint "standing" vote that
     contradicts a wide box is treated as unknown rather than upright.
+
+    Without keypoints the aspect bar is higher, and a wide box clipped by the
+    bottom frame edge (a partial body, feet out of frame) is never called
+    lying — pass `frame_shape` to enable that guard.
     """
     x1, y1, x2, y2 = person.box
     w, h = x2 - x1, y2 - y1
     if h <= 0:
         return POSTURE_UNKNOWN
     aspect = w / h
-    if aspect >= 1.25:
+    has_kp = person.keypoints is not None
+    lying_bar = ASPECT_LYING_WITH_KP if has_kp else ASPECT_LYING_NO_KP
+    edge_clipped = not has_kp and frame_shape is not None and y2 >= frame_shape[0] - 2
+    if aspect >= lying_bar and not edge_clipped:
         return POSTURE_LYING
 
     torso = _torso_posture(person)
@@ -159,7 +171,7 @@ class FallMonitor:
                 continue
             st = self._tracks.setdefault(p.track_id, _TrackState())
             st.last_seen = frame_idx
-            pos = posture_of(p)
+            pos = posture_of(p, frame_shape)
             if pos == POSTURE_LYING:
                 if st.streak_start_t is None:
                     st.streak_start_t = t

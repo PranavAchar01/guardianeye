@@ -24,6 +24,7 @@ class PipelineConfig:
     outdir: Path = Path("out")
     weights: str = "yolo11n-pose.pt"
     conf: float = 0.35
+    imgsz: int = 640
     cell_px: int = 48
     depth_every: int = 8  # recompute the monocular depth map every N frames
     use_depth: bool = True
@@ -36,6 +37,8 @@ class PipelineConfig:
     fire_after_s: float = 0.8  # sustained CRITICAL time before the crush alert fires
     clear_after_s: float = 1.2
     confirm_s: float = 2.0  # continuous down-time before a medical incident confirms
+    use_fall: bool = True  # collapse detection; disable for dense-crowd cameras
+    # where posture evidence is unreliable (density monitoring still runs)
 
 
 @dataclass
@@ -106,7 +109,7 @@ def run(cfg: PipelineConfig) -> dict:
     if cfg.max_frames:
         total = min(total, cfg.max_frames)
 
-    detector = PersonDetector(weights=cfg.weights, conf=cfg.conf, device=device)
+    detector = PersonDetector(weights=cfg.weights, conf=cfg.conf, device=device, imgsz=cfg.imgsz)
     depth_estimator = None
     if cfg.use_depth and cfg.sensor_depth == "none":
         try:
@@ -165,7 +168,7 @@ def run(cfg: PipelineConfig) -> dict:
             density_floor=(cfg.thresholds[1] + cfg.thresholds[2]) / 2,
         )
         zones = risk.find_zones(levels, grid.density, cfg.cell_px)
-        incidents = falls.update(persons, frame_idx, t, frame.shape)
+        incidents = falls.update(persons, frame_idx, t, frame.shape) if cfg.use_fall else []
         frame_level = int(levels.max()) if levels.size else 0
         if incidents:
             frame_level = 3

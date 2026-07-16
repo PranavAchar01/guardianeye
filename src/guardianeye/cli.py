@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: yolo11n-pose.pt)",
     )
     p.add_argument("--conf", type=float, default=0.35, help="detection confidence (default 0.35)")
+    p.add_argument(
+        "--imgsz",
+        type=int,
+        default=640,
+        help="YOLO inference size; larger recovers small/distant people (default 640)",
+    )
     p.add_argument("--cell-px", type=int, default=48, help="density grid cell size in px")
     p.add_argument(
         "--depth-every", type=int, default=8, help="recompute depth every N frames (default 8)"
@@ -55,6 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="continuous down-time before a medical incident confirms (default 2.0)",
     )
     p.add_argument(
+        "--no-fall",
+        action="store_true",
+        help="disable collapse detection (use for dense-crowd cameras where "
+        "posture evidence is unreliable; density monitoring still runs)",
+    )
+    p.add_argument(
         "--thresholds",
         type=_thresholds,
         default=DEFAULT_THRESHOLDS,
@@ -76,6 +88,7 @@ def main(argv: list[str] | None = None) -> None:
         outdir=args.outdir,
         weights=args.weights,
         conf=args.conf,
+        imgsz=args.imgsz,
         cell_px=args.cell_px,
         depth_every=args.depth_every,
         use_depth=not args.no_depth,
@@ -84,6 +97,7 @@ def main(argv: list[str] | None = None) -> None:
         device=args.device,
         max_frames=args.max_frames,
         confirm_s=args.confirm_secs,
+        use_fall=not args.no_fall,
     )
     main_from_cli(cfg)
 

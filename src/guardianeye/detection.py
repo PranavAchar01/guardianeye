@@ -72,12 +72,19 @@ class PersonDetector:
     keypoints; plain detection weights also work (keypoints stay None).
     """
 
-    def __init__(self, weights: str = "yolo11n-pose.pt", conf: float = 0.35, device: str = "cpu"):
+    def __init__(
+        self,
+        weights: str = "yolo11n-pose.pt",
+        conf: float = 0.35,
+        device: str = "cpu",
+        imgsz: int = 640,
+    ):
         from ultralytics import YOLO  # deferred: heavy import
 
         self.model = YOLO(weights)
         self.conf = conf
         self.device = device
+        self.imgsz = imgsz  # larger sizes recover small/distant people
 
     def track(self, frame_bgr: np.ndarray) -> list[Person]:
         results = self.model.track(
@@ -85,6 +92,7 @@ class PersonDetector:
             persist=True,
             classes=[0],  # COCO class 0: person
             conf=self.conf,
+            imgsz=self.imgsz,
             device=self.device,
             verbose=False,
         )

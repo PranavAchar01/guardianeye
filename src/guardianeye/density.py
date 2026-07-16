@@ -21,6 +21,8 @@ from .detection import Person
 REF_HEIGHT_M = 1.7  # assumed mean standing height of a detected person
 MIN_BOX_PX = 8.0  # boxes shorter than this are too noisy to use as rulers
 MAX_RULER_ASPECT = 0.8  # wider boxes are lying/seated people, not vertical rulers
+MIN_CELL_SIDE_M = 0.5  # cells covering less ground than this are below
+# measurement resolution (a single near-field person would read as a crowd)
 
 
 @dataclass
@@ -192,7 +194,9 @@ class DensityEstimator:
             mpp = self._last_mpp
         cell_area = cell_areas_px(frame_shape, self.cell_px) * mpp**2  # m^2 per cell
         density = np.zeros(gshape, dtype=np.float64)
-        valid = cell_area > 1e-9
+        # Only classify density where a full cell spans at least
+        # MIN_CELL_SIDE_M of ground; nearer cells are sub-person resolution.
+        valid = (cell_area > 1e-9) & (mpp * self.cell_px >= MIN_CELL_SIDE_M)
         density[valid] = counts[valid] / cell_area[valid]
         density = smooth_grid(density, self.smooth_sigma)
 

@@ -49,6 +49,25 @@ def test_posture_ambiguous_aspect_is_unknown():
     assert posture_of(box_person(50, 50)) == POSTURE_UNKNOWN
 
 
+def test_posture_no_keypoints_needs_stronger_aspect_evidence():
+    # 1.4 aspect: lying with keypoints present, unknown without (occluded
+    # torsos in crowds produce wide boxes on detect-only weights).
+    kp = np.zeros((17, 3), dtype=np.float32)
+    with_kp = Person(box=(0, 0, 70, 50), conf=0.9, track_id=1, keypoints=kp)
+    without_kp = Person(box=(0, 0, 70, 50), conf=0.9, track_id=1)
+    assert posture_of(with_kp) == POSTURE_LYING
+    assert posture_of(without_kp) == POSTURE_UNKNOWN
+    wide_enough = Person(box=(0, 0, 100, 50), conf=0.9, track_id=1)
+    assert posture_of(wide_enough) == POSTURE_LYING
+
+
+def test_posture_bottom_clipped_box_never_lying_without_keypoints():
+    clipped = Person(box=(0, 190, 100, 239), conf=0.9, track_id=1)  # feet cut off
+    assert posture_of(clipped, FRAME_SHAPE) == POSTURE_UNKNOWN
+    mid_frame = Person(box=(0, 100, 100, 149), conf=0.9, track_id=1)
+    assert posture_of(mid_frame, FRAME_SHAPE) == POSTURE_LYING
+
+
 def test_zone_label():
     assert zone_label(0, 0, 48, FRAME_SHAPE) == "A1"
     assert zone_label(300, 200, 48, FRAME_SHAPE) == "E7"

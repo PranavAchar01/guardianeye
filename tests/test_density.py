@@ -54,6 +54,15 @@ def test_estimator_keeps_last_calibration_when_everyone_is_down():
     assert grid.max_density > 0  # the down person still counts toward density
 
 
+def test_near_field_cells_below_resolution_are_not_classified():
+    """A giant close-up person must not register as a packed crowd."""
+    est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
+    distance = np.ones((480, 480), dtype=np.float32)
+    giant = person_at(100, 400, 400.0)  # mpp = 0.00425 -> cell side 0.2m
+    grid = est.update([giant], distance, (480, 480))
+    assert grid.max_density == 0.0
+
+
 def test_edge_cells_use_true_pixel_area():
     """A person in a half-width edge cell must not have their density halved."""
     est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
