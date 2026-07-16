@@ -4,29 +4,30 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="out/promo_v2/voice"
 mkdir -p "$OUT"
+VOICE="Reed (English (UK))"
 
-say -v Daniel -r 168 -o "$OUT/vo-00.aiff" \
-  "At a stadium, eighty thousand voices can hide one silent emergency."
+say -v "$VOICE" -r 158 -o "$OUT/vo-00.aiff" \
+  "In a stadium, eighty thousand voices can make one silent emergency... disappear."
 
-say -v Daniel -r 168 -o "$OUT/vo-01.aiff" \
-  "A camera can see the crowd. GuardianEye finds the signal."
+say -v "$VOICE" -r 166 -o "$OUT/vo-01.aiff" \
+  "The cameras see the crowd. Guardian Eye sees what matters."
 
-say -v Daniel -r 168 -o "$OUT/vo-02.aiff" \
-  "Meet GuardianEye: the AI safety officer for stadiums, turning existing elevated cameras and drone footage into one venue safety layer."
+say -v "$VOICE" -r 174 -o "$OUT/vo-02.aiff" \
+  "Meet Guardian Eye — the AI safety officer for stadiums. It turns existing cameras and drones into one live safety layer."
 
-say -v Daniel -r 168 -o "$OUT/vo-03.aiff" \
-  "It combines persistent person tracking, pose, and sensor or monocular depth to build a live people-per-square-metre risk map. As pressure builds, or a dense crowd stops moving, operators can see the hotspot early enough to act."
+say -v "$VOICE" -r 174 -o "$OUT/vo-03.aiff" \
+  "It tracks movement, posture, and depth — anonymously — then builds a live map of crowd pressure. When a pocket gets too dense... or suddenly stops moving... the control room sees it early enough to act."
 
-say -v Daniel -r 168 -o "$OUT/vo-04.aiff" \
-  "Edge Watch traces dangerous drop boundaries, cancels the drone's own movement, and follows each trajectory toward the edge: warning before a fall, not after."
+say -v "$VOICE" -r 158 -o "$OUT/vo-04.aiff" \
+  "Near a drop, Edge Watch draws the danger line, stabilizes the drone's motion, and follows every path toward it — so teams get a warning before a fall. Not after."
 
-say -v Daniel -r 168 -o "$OUT/vo-05.aiff" \
-  "When someone goes down, GuardianEye checks posture and sustained down-time. Once confirmed, it delivers a radio-ready location: medical emergency, Zone E four."
+say -v "$VOICE" -r 174 -o "$OUT/vo-05.aiff" \
+  "And if someone goes down? Guardian Eye checks their posture... and whether they stay down. Once it's sure, responders get what they need: medical emergency... Zone E four."
 
-say -v Daniel -r 168 -o "$OUT/vo-06.aiff" \
-  "Crowd crush. Medical collapse. Fall prevention. Three risks, one system, designed to run at the venue edge, with no face recognition and no identity profiles."
+say -v "$VOICE" -r 162 -o "$OUT/vo-06.aiff" \
+  "Crowd crush. Medical collapse. Falls. Three critical risks — one system — running at the venue edge. No face recognition. No identity profiles."
 
-say -v Daniel -r 168 -o "$OUT/vo-07.aiff" \
-  "The cameras are already watching. GuardianEye makes them understand. See sooner. Act sooner."
+say -v "$VOICE" -r 152 -o "$OUT/vo-07.aiff" \
+  "Your cameras already watch the crowd. Guardian Eye helps them understand it. See sooner. Act sooner."
 
 echo "narration ready in $OUT"

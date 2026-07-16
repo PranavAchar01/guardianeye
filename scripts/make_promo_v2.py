@@ -318,6 +318,187 @@ def write_pillow_video(
         raise RuntimeError(f"ffmpeg frame encoder failed for {out}")
 
 
+def write_alpha_video(
+    out: Path,
+    duration: float,
+    render,
+) -> None:
+    if out.exists() and out.stat().st_size > 50_000:
+        print(f"reusing {out.name}")
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    frames = int(round(duration * FPS))
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "rgba",
+        "-video_size",
+        f"{W}x{H}",
+        "-framerate",
+        str(FPS),
+        "-i",
+        "-",
+        "-an",
+        "-c:v",
+        "qtrle",
+        "-pix_fmt",
+        "argb",
+        str(out),
+    ]
+    print(f"rendering {out.name} ({duration:.2f}s alpha FX)")
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    assert proc.stdin is not None
+    try:
+        for i in range(frames):
+            t = i / FPS
+            frame = render(t, duration).convert("RGBA")
+            proc.stdin.write(frame.tobytes())
+    finally:
+        proc.stdin.close()
+    if proc.wait() != 0:
+        raise RuntimeError(f"ffmpeg alpha encoder failed for {out}")
+
+
+def render_transition_fx_factory(
+    major_cues: list[float],
+    minor_cues: list[float],
+) -> callable:
+    def render(t: float, duration: float) -> Image.Image:
+        frame = alpha_layer()
+        d = ImageDraw.Draw(frame)
+
+        for idx, cue in enumerate(major_cues):
+            dt = t - cue
+            if not -0.55 <= dt <= 0.48:
+                continue
+            q = smooth((dt + 0.55) / 1.03)
+            envelope = math.sin(math.pi * clamp((dt + 0.55) / 1.03))
+            style = idx % 4
+
+            if style == 0:
+                # Velocity ribbons: three directional bands cross the frame.
+                x = int(-780 + (W + 1560) * q)
+                for band, color in enumerate((CYAN, RED, LIME)):
+                    shift = band * 105
+                    alpha = int((198 - 24 * band) * envelope)
+                    d.polygon(
+                        (
+                            (x - 510 - shift, -70),
+                            (x - 270 - shift, -70),
+                            (x + 330 - shift, H + 70),
+                            (x + 70 - shift, H + 70),
+                        ),
+                        fill=rgba(color, alpha),
+                    )
+                d.line(
+                    (x - 180, 0, x + 410, H),
+                    fill=rgba(WHITE, int(185 * envelope)),
+                    width=5,
+                )
+            elif style == 1:
+                # Arena aperture: a detected signal grows into the next scene.
+                cx = int(W * (0.28 + 0.44 * q))
+                cy = int(H * (0.60 - 0.22 * math.sin(math.pi * q)))
+                radius = 22 + 780 * q
+                for ring in range(4):
+                    rr = radius - ring * 46
+                    if rr > 3:
+                        d.ellipse(
+                            (cx - rr, cy - rr, cx + rr, cy + rr),
+                            outline=rgba(RED if ring % 2 == 0 else CYAN,
+                                         int((185 - ring * 30) * envelope)),
+                            width=max(2, 10 - ring * 2),
+                        )
+                draw_eye(d, (cx, cy), 26 + 34 * envelope,
+                         alpha=int(220 * envelope))
+            elif style == 2:
+                # Depth scanner: a luminous sensing plane sweeps through.
+                x = int(-100 + (W + 200) * q)
+                for off, color, width in (
+                    (-48, VIOLET, 30), (-16, CYAN, 12), (0, WHITE, 4), (24, RED, 18)
+                ):
+                    d.rectangle(
+                        (x + off - width, 0, x + off + width, H),
+                        fill=rgba(color, int((120 if width > 5 else 210) * envelope)),
+                    )
+                for gy in range(36, H, 72):
+                    d.line(
+                        (0, gy, W, gy),
+                        fill=rgba(CYAN, int(36 * envelope)),
+                        width=1,
+                    )
+            else:
+                # Tactical tiles snap in staggered rows, then clear.
+                cols, rows = 7, 4
+                tile_w, tile_h = W // cols + 2, H // rows + 2
+                for row in range(rows):
+                    for col in range(cols):
+                        stagger = (row * 0.07 + col * 0.025) % 0.28
+                        local = clamp((q - stagger) / 0.38)
+                        tile_alpha = int(148 * math.sin(math.pi * local) * envelope)
+                        if tile_alpha <= 0:
+                            continue
+                        color = (RED, CYAN, VIOLET, LIME)[(row + col) % 4]
+                        x0, y0 = col * tile_w, row * tile_h
+                        inset = int(12 * (1 - local))
+                        d.rounded_rectangle(
+                            (x0 + inset, y0 + inset, x0 + tile_w - inset,
+                             y0 + tile_h - inset),
+                            radius=10,
+                            fill=rgba(color, tile_alpha),
+                            outline=rgba(WHITE, int(75 * envelope)),
+                            width=2,
+                        )
+
+            # A restrained two-frame impact flash binds visual and audio hits.
+            flash = 1.0 - clamp(abs(dt) / 0.075)
+            if flash > 0:
+                d.rectangle((0, 0, W, H), fill=rgba(WHITE, int(42 * flash)))
+
+        # Minor cuts get quick tracking scans, not another full-screen effect.
+        for idx, cue in enumerate(minor_cues):
+            dt = t - cue
+            if not -0.22 <= dt <= 0.24:
+                continue
+            q = smooth((dt + 0.22) / 0.46)
+            envelope = math.sin(math.pi * clamp((dt + 0.22) / 0.46))
+            direction = -1 if idx % 2 else 1
+            x = int((W + 160) * q) if direction > 0 else int(W + 80 - (W + 160) * q)
+            color = (CYAN, RED, LIME)[idx % 3]
+            d.rectangle((x - 4, 0, x + 4, H), fill=rgba(WHITE, int(160 * envelope)))
+            d.rectangle((x - 22, 0, x + 22, H), fill=rgba(color, int(55 * envelope)))
+            for y in (90, 235, 380, 525, 670):
+                d.line(
+                    (x - 56 * direction, y, x - 14 * direction, y),
+                    fill=rgba(color, int(190 * envelope)),
+                    width=3,
+                )
+        return frame
+
+    return render
+
+
+def bake_transition_fx(base: Path, overlay: Path, out: Path, duration: float) -> None:
+    run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(base), "-i", str(overlay),
+            "-filter_complex",
+            "[0:v][1:v]overlay=0:0:format=auto,"
+            "unsharp=5:5:0.22:5:5:0,format=yuv420p[outv]",
+            "-map", "[outv]", "-an", "-t", f"{duration:.3f}",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "17",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out),
+        ],
+        quiet=True,
+    )
+
+
 def render_intro_factory() -> callable:
     source = Image.open(GENERATED / "stadium-intro.png").convert("RGB")
 
@@ -1080,7 +1261,12 @@ def prepare_visuals() -> None:
         montage_show_d,
         7.0,
     ]
-    show_transitions = ["diagtl", "hrslice", "circleopen", "radial", "pixelize", "circleclose"]
+    # The transparent FX layer carries the visual identity; these underlying
+    # blends stay smooth so no stock-looking slice/pixel preset shows through.
+    show_transitions = [
+        "smoothleft", "smoothright", "fadefast",
+        "fadefast", "fadefast", "smoothleft",
+    ]
     show_tds = [0.5, 0.5, 0.4, 0.5, 0.4, 0.4]
     show_duration, show_cues = join_xfade(
         [intro, stadium_show, edge_show, fall_show, synthesis_show, montage_show, outro_show],
@@ -1133,8 +1319,8 @@ def prepare_visuals() -> None:
         8.3,
     ]
     film_transitions = [
-        "diagtl", "hrslice", "circleopen", "hblur",
-        "radial", "smoothleft", "pixelize", "circleclose",
+        "smoothleft", "smoothright", "fadefast", "smoothleft",
+        "fadefast", "smoothright", "fadefast", "smoothleft",
     ]
     film_tds = [0.6, 0.5, 0.5, 0.5, 0.6, 0.5, 0.5, 0.8]
     film_duration, film_cues = join_xfade(
@@ -1157,16 +1343,63 @@ def prepare_visuals() -> None:
     if abs(film_duration - 90.0) > 0.05:
         raise RuntimeError(f"film duration drifted to {film_duration:.3f}s")
 
+    # Layer original sports-broadcast motion over both edits. Major cues sit on
+    # section changes; minor cues add fast tracking scans at internal camera cuts.
+    show_minor_cues = [
+        11.20, 14.90, 18.60,
+        24.30, 27.10, 29.70, 32.50,
+        35.50, 37.60, 38.80, 56.40,
+    ]
+    film_minor_cues = [
+        19.35, 23.80, 28.25,
+        36.00, 39.60, 43.20, 46.80,
+        51.35, 53.35, 55.75, 74.20, 85.30,
+    ]
+    show_impact_cues = [cue + td / 2 for cue, td in zip(show_cues, show_tds, strict=True)]
+    film_impact_cues = [cue + td / 2 for cue, td in zip(film_cues, film_tds, strict=True)]
+    show_fx = WORK / "showcase-transition-fx-v2.mov"
+    film_fx = WORK / "film-transition-fx-v2.mov"
+    write_alpha_video(
+        show_fx,
+        show_duration,
+        render_transition_fx_factory(show_impact_cues, show_minor_cues),
+    )
+    write_alpha_video(
+        film_fx,
+        film_duration,
+        render_transition_fx_factory(film_impact_cues, film_minor_cues),
+    )
+    showcase_immersive = OUT / "guardianeye-showcase-v2-immersive-silent.mp4"
+    film_immersive = OUT / "guardianeye-film-90s-immersive-silent.mp4"
+    bake_transition_fx(showcase_silent, show_fx, showcase_immersive, show_duration)
+    bake_transition_fx(film_silent, film_fx, film_immersive, film_duration)
+
     extract_ambience()
-    synth_soundtrack(WORK / "showcase-score.wav", show_duration, show_cues, profile="showcase")
-    synth_soundtrack(WORK / "film-score.wav", film_duration, film_cues, profile="film")
+    synth_soundtrack(
+        WORK / "showcase-score-immersive.wav",
+        show_duration,
+        show_impact_cues,
+        minor_cues=show_minor_cues,
+        profile="showcase",
+    )
+    synth_soundtrack(
+        WORK / "film-score-immersive.wav",
+        film_duration,
+        film_impact_cues,
+        minor_cues=film_minor_cues,
+        profile="film",
+    )
     (WORK / "timing.txt").write_text(
         "\n".join(
             [
                 f"showcase_duration={show_duration:.6f}",
                 "showcase_cues=" + ",".join(f"{x:.3f}" for x in show_cues),
+                "showcase_impact_cues=" + ",".join(f"{x:.3f}" for x in show_impact_cues),
+                "showcase_minor_cues=" + ",".join(f"{x:.3f}" for x in show_minor_cues),
                 f"film_duration={film_duration:.6f}",
                 "film_cues=" + ",".join(f"{x:.3f}" for x in film_cues),
+                "film_impact_cues=" + ",".join(f"{x:.3f}" for x in film_impact_cues),
+                "film_minor_cues=" + ",".join(f"{x:.3f}" for x in film_minor_cues),
             ]
         )
         + "\n"
@@ -1194,6 +1427,7 @@ def synth_soundtrack(
     duration: float,
     cues: list[float],
     *,
+    minor_cues: list[float] | None = None,
     profile: str,
 ) -> None:
     if out.exists() and abs(probe_duration(out) - duration) <= 0.02:
@@ -1207,13 +1441,23 @@ def synth_soundtrack(
     previous_noise = 0.0
     beat = 0.5  # 120 BPM
     roots = [55.0, 65.406, 48.999, 73.416]
-    cue_windows = [(c - 0.62, c, c + 0.55, idx) for idx, c in enumerate(cues)]
+    minor_cues = minor_cues or []
+    cue_windows = [
+        (c - 0.62, c, c + 0.55, idx, 1.0)
+        for idx, c in enumerate(cues)
+    ]
+    cue_windows.extend(
+        (c - 0.25, c, c + 0.24, idx + len(cues), 0.46)
+        for idx, c in enumerate(minor_cues)
+    )
     if profile == "showcase":
         alert_times = [34.3, 36.9, 38.0]
         energy_dip = (33.7, 40.5)
+        radio_squelch_at = 38.05
     else:
         alert_times = [50.8, 53.4, 55.3]
         energy_dip = (49.6, 58.5)
+        radio_squelch_at = 61.30
 
     for i in range(total):
         t = i / rate
@@ -1249,6 +1493,11 @@ def synth_soundtrack(
             + 0.72 * math.sin(math.tau * root * 3.0 * t + 0.8)
             + 0.45 * math.sin(math.tau * root * 4.0 * t + 1.7)
         ) * 0.024 * (0.40 + 0.60 * intro)
+        pad_right = (
+            math.sin(math.tau * root * 2.0 * t + 0.11)
+            + 0.72 * math.sin(math.tau * root * 3.0 * t + 0.91)
+            + 0.45 * math.sin(math.tau * root * 4.0 * t + 1.52)
+        ) * 0.024 * (0.40 + 0.60 * intro)
 
         eighth = t % 0.25
         arp_notes = [2.0, 2.5, 3.0, 4.0, 3.0, 2.5, 2.0, 1.5]
@@ -1258,6 +1507,10 @@ def synth_soundtrack(
             math.sin(math.tau * root * arp_mul * t)
             + 0.28 * math.sin(math.tau * root * arp_mul * 2.0 * t)
         ) * 0.026 * arp_env * energy
+        arp_right = (
+            math.sin(math.tau * root * arp_mul * t + 0.16)
+            + 0.28 * math.sin(math.tau * root * arp_mul * 2.0 * t + 0.09)
+        ) * 0.026 * arp_env * energy
 
         hat = hp_noise * math.exp(-75.0 * eighth) * 0.045 * energy
         snare = 0.0
@@ -1265,10 +1518,10 @@ def synth_soundtrack(
             snare = hp_noise * math.exp(-22.0 * beat_local) * 0.085 * energy
 
         left_sfx = right_sfx = 0.0
-        for start, center, end, idx in cue_windows:
+        for start, center, end, idx, strength in cue_windows:
             if start <= t < center:
                 q = (t - start) / (center - start)
-                whoosh = hp_noise * (q**2.4) * 0.14
+                whoosh = hp_noise * (q**2.4) * 0.16 * strength
                 if idx % 2:
                     left_sfx += whoosh * (1 - q * 0.7)
                     right_sfx += whoosh * (0.3 + q * 0.7)
@@ -1278,11 +1531,37 @@ def synth_soundtrack(
             elif center <= t < end:
                 q = t - center
                 impact = math.sin(math.tau * (67.0 * q + 2.2 * (1 - math.exp(-20 * q))))
-                impact *= math.exp(-10.5 * q) * 0.34
+                impact *= math.exp(-10.5 * q) * 0.34 * strength
                 ring = math.sin(math.tau * (1420.0 - 710.0 * q) * q)
-                ring *= math.exp(-8.0 * q) * 0.045
+                ring *= math.exp(-8.0 * q) * 0.052 * strength
                 left_sfx += impact + ring
                 right_sfx += impact + ring
+
+        # Short data ticks punctuate internal camera changes.
+        data_tick = 0.0
+        for cue in minor_cues:
+            dt = t - cue
+            if 0 <= dt < 0.055:
+                data_tick += math.sin(math.tau * 2050.0 * dt) * math.sin(
+                    math.pi * dt / 0.055
+                ) * 0.055
+            elif 0.075 <= dt < 0.125:
+                q = dt - 0.075
+                data_tick += math.sin(math.tau * 1280.0 * q) * math.sin(
+                    math.pi * q / 0.05
+                ) * 0.042
+
+        # A tactile radio-open texture makes the confirmed zone alert feel operational.
+        radio = 0.0
+        radio_dt = t - radio_squelch_at
+        if -0.14 <= radio_dt < 0:
+            q = (radio_dt + 0.14) / 0.14
+            radio = hp_noise * (q**1.8) * 0.16
+        elif 0 <= radio_dt < 0.12:
+            radio = hp_noise * math.exp(-22.0 * radio_dt) * 0.15
+            radio += math.sin(math.tau * 420.0 * radio_dt) * math.exp(
+                -18.0 * radio_dt
+            ) * 0.055
 
         alert = 0.0
         for at in alert_times:
@@ -1312,9 +1591,9 @@ def synth_soundtrack(
                     + 0.25 * math.sin(math.tau * freq * 2.0 * dt)
                 ) * math.exp(-3.1 * dt) * 0.075
 
-        base = kick + bass + pad + arp + hat + snare + alert + heartbeat + sonic
-        left = math.tanh((base + left_sfx) * 1.12)
-        right = math.tanh((base + right_sfx) * 1.12)
+        shared = kick + bass + hat + snare + alert + heartbeat + sonic + data_tick + radio
+        left = math.tanh((shared + pad + arp + left_sfx) * 1.10)
+        right = math.tanh((shared + pad_right + arp_right + right_sfx) * 1.10)
         pcm.append(int(clamp(left, -1.0, 1.0) * 32767))
         pcm.append(int(clamp(right, -1.0, 1.0) * 32767))
 
@@ -1326,11 +1605,11 @@ def synth_soundtrack(
         wav.writeframes(pcm.tobytes())
 
 
-VOICE_STARTS = [0.8, 6.0, 11.2, 20.0, 35.5, 53.0, 64.2, 78.5]
+VOICE_STARTS = [0.45, 6.75, 11.40, 20.35, 35.40, 51.80, 64.50, 80.00]
 
 
 def mix_showcase_audio() -> Path:
-    score = WORK / "showcase-score.wav"
+    score = WORK / "showcase-score-immersive.wav"
     ambience = WORK / "stadium-ambience.wav"
     out = WORK / "showcase-mix.m4a"
     run(
@@ -1338,12 +1617,18 @@ def mix_showcase_audio() -> Path:
             "ffmpeg", "-y", "-loglevel", "error",
             "-i", str(score), "-stream_loop", "-1", "-i", str(ambience),
             "-filter_complex",
-            "[0:a]volume=0.88[score];"
-            "[1:a]atrim=duration=60,asetpts=PTS-STARTPTS,volume=0.13,"
+            "[0:a]volume=0.90[score];"
+            "[1:a]atrim=duration=60,asetpts=PTS-STARTPTS,"
+            "stereowiden=delay=9:feedback=0.12:crossfeed=0.14:drymix=0.94,"
+            "volume=0.085,"
+            "volume=1.90:enable='between(t,7.5,22.25)',"
+            "volume=0.42:enable='between(t,34.6,40.6)',"
+            "volume=1.45:enable='between(t,48.9,53.2)',"
+            "lowpass=f=3400:enable='between(t,34.6,40.6)',"
             "afade=t=in:st=0:d=2,afade=t=out:st=57:d=3[amb];"
             "[score][amb]amix=inputs=2:duration=first:normalize=0,"
             "loudnorm=I=-14:TP=-1:LRA=8,aresample=48000,"
-            "alimiter=limit=0.75:attack=5:release=50:level=false:latency=true[outa]",
+            "alimiter=limit=0.68:attack=5:release=50:level=false:latency=true[outa]",
             "-map", "[outa]", "-t", "60", "-c:a", "aac", "-b:a", "256k", str(out),
         ],
         quiet=True,
@@ -1352,7 +1637,7 @@ def mix_showcase_audio() -> Path:
 
 
 def mix_film_audio() -> Path:
-    score = WORK / "film-score.wav"
+    score = WORK / "film-score-immersive.wav"
     ambience = WORK / "stadium-ambience.wav"
     voice_files = [VO_DIR / f"vo-{i:02d}.aiff" for i in range(len(VOICE_STARTS))]
     missing = [p for p in voice_files if not p.exists() or p.stat().st_size < 10_000]
@@ -1368,8 +1653,14 @@ def mix_film_audio() -> Path:
     for voice in voice_files:
         cmd += ["-i", str(voice)]
     filters = [
-        "[0:a]aresample=48000,volume=0.82[music]",
-        "[1:a]atrim=duration=90,asetpts=PTS-STARTPTS,volume=0.105,"
+        "[0:a]aresample=48000,volume=0.84[music]",
+        "[1:a]atrim=duration=90,asetpts=PTS-STARTPTS,"
+        "stereowiden=delay=9:feedback=0.12:crossfeed=0.14:drymix=0.94,"
+        "volume=0.070,"
+        "volume=2.10:enable='between(t,15.15,32.65)',"
+        "volume=0.35:enable='between(t,50.1,59.8)',"
+        "volume=1.60:enable='between(t,77.75,82.1)',"
+        "lowpass=f=3400:enable='between(t,50.1,59.8)',"
         "afade=t=in:st=0:d=2,afade=t=out:st=87:d=3[amb]",
     ]
     voice_refs: list[str] = []
@@ -1378,9 +1669,10 @@ def mix_film_audio() -> Path:
         delay = int(round(start * 1000))
         label = f"vo{i}"
         filters.append(
-            f"[{stream}:a]aresample=48000,highpass=f=75,lowpass=f=9800,"
-            f"acompressor=threshold=-20dB:ratio=2.4:attack=8:release=90,"
-            f"volume=1.28,adelay={delay}|{delay}[{label}]"
+            f"[{stream}:a]aresample=48000,highpass=f=65,lowpass=f=14000,"
+            "deesser=i=0.18:m=0.35:f=0.55,"
+            "acompressor=threshold=-18dB:ratio=2:attack=15:release=140,"
+            f"volume=1.16,adelay={delay}|{delay}[{label}]"
         )
         voice_refs.append(f"[{label}]")
     filters.append(
@@ -1392,13 +1684,16 @@ def mix_film_audio() -> Path:
         "asplit=2[voice_sc][voice_mix]"
     )
     filters.append(
-        "[music][voice_sc]sidechaincompress=threshold=0.018:ratio=8:"
-        "attack=8:release=260[ducked]"
+        "[music][amb]amix=inputs=2:duration=first:normalize=0[bed]"
     )
     filters.append(
-        "[ducked][amb][voice_mix]amix=inputs=3:duration=first:normalize=0,"
+        "[bed][voice_sc]sidechaincompress=threshold=0.04:ratio=4:knee=6:"
+        "attack=12:release=300:detection=rms[ducked]"
+    )
+    filters.append(
+        "[ducked][voice_mix]amix=inputs=2:duration=first:normalize=0,"
         "loudnorm=I=-14:TP=-1:LRA=8,aresample=48000,"
-        "alimiter=limit=0.75:attack=5:release=50:level=false:latency=true[outa]"
+        "alimiter=limit=0.68:attack=5:release=50:level=false:latency=true[outa]"
     )
     out = WORK / "film-mix.m4a"
     cmd += [
@@ -1423,9 +1718,14 @@ def mux(video: Path, audio: Path, out: Path, duration: float) -> None:
 
 
 def finalize() -> None:
-    showcase_silent = OUT / "guardianeye-showcase-v2-silent.mp4"
-    film_silent = OUT / "guardianeye-film-90s-silent.mp4"
-    for path in (showcase_silent, film_silent, WORK / "showcase-score.wav", WORK / "film-score.wav"):
+    showcase_silent = OUT / "guardianeye-showcase-v2-immersive-silent.mp4"
+    film_silent = OUT / "guardianeye-film-90s-immersive-silent.mp4"
+    for path in (
+        showcase_silent,
+        film_silent,
+        WORK / "showcase-score-immersive.wav",
+        WORK / "film-score-immersive.wav",
+    ):
         require(path)
     show_audio = mix_showcase_audio()
     film_audio = mix_film_audio()
