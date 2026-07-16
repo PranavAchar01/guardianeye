@@ -6,6 +6,10 @@ estimation fused with a depth channel (hardware sensor or monocular model).
 
 *Sports World Cup Hackathon 2026 — Track 4: Sports Business & Operations.*
 
+🎬 **[Watch the showcase video](https://github.com/PranavAchar01/guardianeye/releases/tag/v0.1.0)** —
+real Premier League stadium footage + collapse detection on a Kinect depth
+recording (all processed videos attached to the v0.1.0 release).
+
 ## Why this should already exist
 
 - A cardiac arrest in row 47 of an 80,000-seat stadium is invisible to medics
@@ -54,8 +58,17 @@ uv run guardianeye demo/fall-01.mp4 -o out/fall01 --sensor-depth left --confirm-
 # works). Sparse crowd, so demo thresholds are lowered to exercise the alerts:
 uv run guardianeye demo/pedestrians.avi -o out/peds --weights yolo11n.pt --thresholds 0.6,1.2,2.0
 
+# Real stadium footage (wide night scene: detect weights, 1280px inference
+# for distant fans, collapse detection scoped off — posture evidence is
+# unreliable in dense seated crowds):
+uv run guardianeye demo/stadium-cut.mp4 -o out/stadium \
+  --weights yolo11n.pt --imgsz 1280 --conf 0.25 --thresholds 0.5,1.2,2.0 --no-fall
+
 # Any drone/CCTV video, defaults (real-world thresholds 2 / 3.5 / 5 p/m²):
 uv run guardianeye your_footage.mp4 -o out/run1
+
+# Rebuild the showcase montage from processed outputs:
+uv run python scripts/make_showcase.py
 ```
 
 Outputs per run: `annotated.mp4` (HUD, heatmap, boxes, incident markers,
@@ -71,6 +84,8 @@ depth inset), `report.html` (stats, sparklines, incident/crush tables),
 | `--thresholds T1,T2,T3` | density boundaries in people/m² (default 2, 3.5, 5 — literature values) |
 | `--confirm-secs S` | continuous down-time before a medical incident confirms (default 2.0) |
 | `--weights W` | any Ultralytics model; pose weights enable posture detection |
+| `--imgsz N` | YOLO inference size; 1280 recovers small/distant people (default 640) |
+| `--no-fall` | disable collapse detection for dense-crowd cameras (density still runs) |
 | `--device auto\|mps\|cuda\|cpu` | inference device |
 
 ## Verification
