@@ -67,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
         "posture evidence is unreliable; density monitoring still runs)",
     )
     p.add_argument(
+        "--edge-watch",
+        action="store_true",
+        help="enable drop-edge fall-off risk tracking: hazard edges from depth "
+        "discontinuities + per-person trajectory prediction (needs depth)",
+    )
+    p.add_argument(
         "--thresholds",
         type=_thresholds,
         default=DEFAULT_THRESHOLDS,
@@ -98,6 +104,7 @@ def main(argv: list[str] | None = None) -> None:
         max_frames=args.max_frames,
         confirm_s=args.confirm_secs,
         use_fall=not args.no_fall,
+        edge_watch=args.edge_watch,
     )
     main_from_cli(cfg)
 

@@ -9,6 +9,7 @@ import numpy as np
 
 from .density import DensityGrid
 from .detection import Person
+from .edge import EDGE_FALL_RISK, EdgeStatus
 from .fall import Incident
 from .risk import LEVEL_COLORS_BGR, LEVELS, Zone
 
@@ -133,10 +134,11 @@ def draw_hud(
     crush_on: bool,
     incidents: list[Incident],
     frame_idx: int,
+    edge_statuses: list[EdgeStatus] | None = None,
 ) -> np.ndarray:
     """Top status bar plus pulsing banners while alerts are active.
 
-    A confirmed medical incident outranks the crush banner.
+    Banner priority: imminent fall-off > medical incident > crush risk.
     """
     h, w = frame.shape[:2]
     out = frame.copy()
@@ -180,6 +182,11 @@ def draw_hud(
 
     pulse = 0.55 + 0.35 * math.sin(frame_idx * 0.35)
     y0 = HUD_H + 6
+    falling = [s for s in (edge_statuses or []) if s.level >= EDGE_FALL_RISK]
+    if falling:
+        zones_txt = ",".join(s.zone for s in falling[:3])
+        frame = _banner(frame, f"!! FALL RISK AT EDGE - ZONE {zones_txt} !!", y0, pulse)
+        y0 += 40
     if incidents:
         zones_txt = ",".join(i.zone for i in incidents[:3])
         frame = _banner(frame, f"!! MEDICAL EMERGENCY - ZONE {zones_txt} !!", y0, pulse)
@@ -187,6 +194,55 @@ def draw_hud(
     if crush_on:
         frame = _banner(frame, "!! CRUSH RISK - DISPERSE ZONE NOW !!", y0, pulse)
     return frame
+
+
+def draw_edge_overlay(
+    frame: np.ndarray,
+    mask: np.ndarray | None,
+    statuses: list[EdgeStatus],
+    frame_idx: int,
+) -> None:
+    """Hazard edges as a red glow; velocity arrows + rings on at-risk people."""
+    if mask is not None:
+        edge = cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8))
+        glow = frame.copy()
+        glow[edge > 0] = (60, 60, 235)
+        cv2.addWeighted(glow, 0.5, frame, 0.5, 0, dst=frame)
+    for s in statuses:
+        x, y = (int(v) for v in s.location)
+        color = (50, 50, 255) if s.level >= EDGE_FALL_RISK else (0, 150, 255)
+        radius = 14 + int(3 * math.sin(frame_idx * 0.4))
+        cv2.circle(frame, (x, y), radius, color, 2, cv2.LINE_AA)
+        vx, vy = s.velocity
+        if abs(vx) + abs(vy) > 2:  # visible motion: draw ~0.7s of travel
+            cv2.arrowedLine(
+                frame,
+                (x, y),
+                (int(x + vx * 0.7), int(y + vy * 0.7)),
+                color,
+                2,
+                cv2.LINE_AA,
+                tipLength=0.3,
+            )
+        label = (
+            f"FALL RISK {s.tte_s:.1f}s  ZONE {s.zone}"
+            if s.level >= EDGE_FALL_RISK and s.tte_s is not None
+            else f"NEAR EDGE  ZONE {s.zone}"
+        )
+        ly = max(y - radius - 8, 12)
+        cv2.putText(
+            frame,
+            label,
+            (max(x - 80, 2), ly),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame, label, (max(x - 80, 2), ly), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
+        )
 
 
 def draw_incidents(frame: np.ndarray, incidents: list[Incident], t: float, frame_idx: int) -> None:
@@ -280,15 +336,19 @@ def render_frame(
     frame_idx: int,
     crush_on: bool,
     incidents: list[Incident],
+    edge_statuses: list[EdgeStatus] | None = None,
+    edge_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     out = heatmap_overlay(frame, grid, critical=thresholds[2])
     draw_persons(out, persons, levels, grid)
     draw_zones(out, zones, levels, grid.cell_px)
     draw_incidents(out, incidents, t, frame_idx)
+    if edge_statuses is not None:
+        draw_edge_overlay(out, edge_mask, edge_statuses, frame_idx)
     draw_depth_inset(out, distance)
     draw_legend(out, thresholds)
     frame_level = int(levels.max()) if levels.size else 0
-    if incidents:
+    if incidents or any(s.level >= EDGE_FALL_RISK for s in edge_statuses or []):
         frame_level = 3
     return draw_hud(
         out,
@@ -299,4 +359,5 @@ def render_frame(
         crush_on=crush_on,
         incidents=incidents,
         frame_idx=frame_idx,
+        edge_statuses=edge_statuses,
     )

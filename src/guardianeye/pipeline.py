@@ -39,6 +39,7 @@ class PipelineConfig:
     confirm_s: float = 2.0  # continuous down-time before a medical incident confirms
     use_fall: bool = True  # collapse detection; disable for dense-crowd cameras
     # where posture evidence is unreliable (density monitoring still runs)
+    edge_watch: bool = False  # drop-edge fall-off risk (needs a depth channel)
 
 
 @dataclass
@@ -50,6 +51,7 @@ class FrameMetrics:
     mean_density: float
     level: int
     incidents: int
+    edge_risks: int = 0
     zones: list[dict] = field(default_factory=list)
 
 
@@ -131,6 +133,11 @@ def run(cfg: PipelineConfig) -> dict:
         clear_after=max(1, int(cfg.clear_after_s * fps)),
     )
     falls = FallMonitor(fps=fps, confirm_s=cfg.confirm_s, cell_px=cfg.cell_px)
+    edges = None
+    if cfg.edge_watch:
+        from .edge import EdgeMonitor
+
+        edges = EdgeMonitor(fps=fps, cell_px=cfg.cell_px)
 
     raw_path = cfg.outdir / "annotated_raw.mp4"
     writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
@@ -169,8 +176,14 @@ def run(cfg: PipelineConfig) -> dict:
         )
         zones = risk.find_zones(levels, grid.density, cfg.cell_px)
         incidents = falls.update(persons, frame_idx, t, frame.shape) if cfg.use_fall else []
+        edge_statuses, edge_mask = (None, None)
+        if edges is not None:
+            edge_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            edge_statuses, edge_mask = edges.update(
+                persons, distance, frame_idx, t, frame.shape, edge_gray
+            )
         frame_level = int(levels.max()) if levels.size else 0
-        if incidents:
+        if incidents or any(s.level >= 2 for s in edge_statuses or []):
             frame_level = 3
         crush_on = crush_alerts.update(int(levels.max()) if levels.size else 0, grid.max_density, t)
 
@@ -186,6 +199,8 @@ def run(cfg: PipelineConfig) -> dict:
             frame_idx,
             crush_on,
             incidents,
+            edge_statuses,
+            edge_mask,
         )
         writer.write(annotated)
 
@@ -198,6 +213,7 @@ def run(cfg: PipelineConfig) -> dict:
                 mean_density=round(grid.occupied_mean, 3),
                 level=frame_level,
                 incidents=len(incidents),
+                edge_risks=len(edge_statuses or []),
                 zones=[
                     {"id": z.zone_id, "level": z.level, "peak": round(z.peak_density, 2)}
                     for z in zones
@@ -210,7 +226,8 @@ def run(cfg: PipelineConfig) -> dict:
             print(
                 f"[guardianeye] {frame_idx}/{total or '?'} frames  "
                 f"people={len(persons):3d}  peak={grid.max_density:4.1f} p/m2  "
-                f"down={len(incidents)}  ({frame_idx / el:.1f} fps)",
+                f"down={len(incidents)}  edge={len(edge_statuses or [])}  "
+                f"({frame_idx / el:.1f} fps)",
                 flush=True,
             )
 
@@ -259,6 +276,15 @@ def run(cfg: PipelineConfig) -> dict:
                 "peak_down_s": round(i.peak_down_s, 2),
             }
             for i in falls.episodes
+        ],
+        "edge_events": [
+            {
+                "track_id": e.track_id,
+                "start_t": round(e.start_t, 2),
+                "zone": e.zone,
+                "min_tte_s": round(e.min_tte_s, 2) if e.min_tte_s is not None else None,
+            }
+            for e in (edges.events if edges is not None else [])
         ],
         "frames": [vars(m) for m in metrics],
     }

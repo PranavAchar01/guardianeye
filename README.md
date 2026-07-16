@@ -22,8 +22,18 @@ recording (all processed videos attached to the v0.1.0 release).
   every camera into a live people-per-m² risk map and fires an alert while
   there is still time to open gates.
 
-One product, two failure modes of the same physics: too many bodies in one
-place, or one body on the ground.
+One product, three failure modes of the same physics: too many bodies in one
+place, one body on the ground — or one body about to go over an edge.
+
+## Edge Watch: "will anyone fall off?"
+
+From a drone or high camera, a drop edge (tier rail, beam end, roof opening)
+is a sharp discontinuity in the depth map. Edge Watch traces those cliffs,
+tracks every person's velocity with **ego-motion compensation** (optical-flow
+median cancels the drone's own movement, so a stationary person never "drifts"
+toward an edge), and fires a zone alert with a **time-to-edge** prediction
+when someone's sustained trajectory crosses a drop — before the fall, not
+after.
 
 ## How it works
 
@@ -64,11 +74,16 @@ uv run guardianeye demo/pedestrians.avi -o out/peds --weights yolo11n.pt --thres
 uv run guardianeye demo/stadium-cut.mp4 -o out/stadium \
   --weights yolo11n.pt --imgsz 1280 --conf 0.25 --thresholds 0.5,1.2,2.0 --no-fall
 
+# Edge Watch on drone footage (people at height on a stadium structure):
+uv run guardianeye demo/drone-cut.mp4 -o out/drone \
+  --edge-watch --no-fall --weights yolo11n.pt --imgsz 1280 --conf 0.25 --depth-every 4
+
 # Any drone/CCTV video, defaults (real-world thresholds 2 / 3.5 / 5 p/m²):
 uv run guardianeye your_footage.mp4 -o out/run1
 
-# Rebuild the showcase montage from processed outputs:
+# Rebuild the demo montages from processed outputs:
 uv run python scripts/make_showcase.py
+uv run python scripts/make_edge_demo.py
 ```
 
 Outputs per run: `annotated.mp4` (HUD, heatmap, boxes, incident markers,
@@ -86,6 +101,7 @@ depth inset), `report.html` (stats, sparklines, incident/crush tables),
 | `--weights W` | any Ultralytics model; pose weights enable posture detection |
 | `--imgsz N` | YOLO inference size; 1280 recovers small/distant people (default 640) |
 | `--no-fall` | disable collapse detection for dense-crowd cameras (density still runs) |
+| `--edge-watch` | drop-edge fall-off risk: depth-cliff hazard map + trajectory prediction |
 | `--device auto\|mps\|cuda\|cpu` | inference device |
 
 ## Verification
@@ -111,5 +127,7 @@ uv run pytest -q             # unit tests: density math, calibration,
 ## Data / licenses
 
 Demo footage: [UR Fall Detection Dataset](https://fenix.ur.edu.pl/~mkepski/ds/uf.html)
-(Kwolek & Kepski), OpenCV sample data, Intel `sample-videos`. Models:
-Ultralytics YOLO11 (AGPL-3.0), Depth Anything V2 (Apache-2.0).
+(Kwolek & Kepski), OpenCV sample data, Intel `sample-videos`; Wikimedia
+Commons: "Chelsea fans chanting at Tottenham stadium" (CC BY-SA 2.0) and
+"Mercedes-Benz Stadium Drone Fly-Over" (CC BY 3.0). Models: Ultralytics
+YOLO11 (AGPL-3.0), Depth Anything V2 (Apache-2.0).
