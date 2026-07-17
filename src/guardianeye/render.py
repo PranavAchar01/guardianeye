@@ -338,6 +338,7 @@ def render_frame(
     incidents: list[Incident],
     edge_statuses: list[EdgeStatus] | None = None,
     edge_mask: np.ndarray | None = None,
+    people_count: int | None = None,  # crowd-model estimate overrides len(persons)
 ) -> np.ndarray:
     out = heatmap_overlay(frame, grid, critical=thresholds[2])
     draw_persons(out, persons, levels, grid)
@@ -352,7 +353,7 @@ def render_frame(
         frame_level = 3
     return draw_hud(
         out,
-        count=len(persons),
+        count=people_count if people_count is not None else len(persons),
         peak_density=grid.max_density,
         frame_level=frame_level,
         t=t,

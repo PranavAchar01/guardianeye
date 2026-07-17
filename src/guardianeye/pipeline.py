@@ -41,6 +41,9 @@ class PipelineConfig:
     use_fall: bool = True  # collapse detection; disable for dense-crowd cameras
     # where posture evidence is unreliable (density monitoring still runs)
     edge_watch: bool = False  # drop-edge fall-off risk (needs a depth channel)
+    crowd_model: Path | None = None  # CSRNet weights: density-map counting for
+    # packed crowds beyond per-person detection
+    crowd_every: int = 4  # recompute the crowd count map every N frames
 
 
 @dataclass
@@ -144,6 +147,11 @@ def run(cfg: PipelineConfig) -> dict:
         from .edge import EdgeMonitor
 
         edges = EdgeMonitor(fps=fps, cell_px=cfg.cell_px)
+    crowd = None
+    if cfg.crowd_model is not None:
+        from .crowd import CrowdCounter
+
+        crowd = CrowdCounter(str(cfg.crowd_model), device=device)
 
     raw_path = cfg.outdir / "annotated_raw.mp4"
     writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
@@ -151,6 +159,7 @@ def run(cfg: PipelineConfig) -> dict:
         raise SystemExit(f"cannot open video writer: {raw_path}")
 
     distance: np.ndarray | None = None
+    count_map: np.ndarray | None = None
     tracks_prev: dict[int, tuple[float, float, int]] = {}
     metrics: list[FrameMetrics] = []
     t_start = time.perf_counter()
@@ -169,8 +178,11 @@ def run(cfg: PipelineConfig) -> dict:
         persons = stitch_ids(detector.track(frame), tracks_prev)
         if depth_estimator is not None and frame_idx % cfg.depth_every == 0:
             distance = depth_estimator.relative_distance(frame)
+        if crowd is not None and frame_idx % cfg.crowd_every == 0:
+            count_map = crowd.count_map(frame)
+        people_n = int(round(float(count_map.sum()))) if count_map is not None else len(persons)
 
-        grid = estimator.update(persons, distance, frame.shape)
+        grid = estimator.update(persons, distance, frame.shape, count_map=count_map)
         levels = risk.classify(grid.density, cfg.thresholds)
         cell_speeds = risk.speed_samples_ms(tracks_prev, persons, frame_idx, fps, grid)
         levels = risk.escalate_stagnation(
@@ -207,6 +219,7 @@ def run(cfg: PipelineConfig) -> dict:
             incidents,
             edge_statuses,
             edge_mask,
+            people_count=people_n,
         )
         writer.write(annotated)
 
@@ -214,7 +227,7 @@ def run(cfg: PipelineConfig) -> dict:
             FrameMetrics(
                 frame=frame_idx,
                 t=round(t, 3),
-                count=len(persons),
+                count=people_n,
                 max_density=round(grid.max_density, 3),
                 mean_density=round(grid.occupied_mean, 3),
                 level=frame_level,
@@ -231,7 +244,7 @@ def run(cfg: PipelineConfig) -> dict:
             el = time.perf_counter() - t_start
             print(
                 f"[guardianeye] {frame_idx}/{total or '?'} frames  "
-                f"people={len(persons):3d}  peak={grid.max_density:4.1f} p/m2  "
+                f"people={people_n:4d}  peak={grid.max_density:4.1f} p/m2  "
                 f"down={len(incidents)}  edge={len(edge_statuses or [])}  "
                 f"({frame_idx / el:.1f} fps)",
                 flush=True,

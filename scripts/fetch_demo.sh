@@ -37,4 +37,16 @@ if [ ! -f demo/drone-cut.mp4 ]; then
   ffmpeg -y -loglevel error -f concat -safe 0 -i "$T/list.txt" -c:v libx264 -pix_fmt yuv420p demo/drone-cut.mp4
   rm -rf "$T"
 fi
+# CSRNet crowd-counting weights (ShanghaiTech Part A) for --crowd-model
+mkdir -p models
+[ -f models/csrnet_shta.pth ] || curl -sL --fail --max-time 300 \
+  -o models/csrnet_shta.pth \
+  "https://huggingface.co/saibhavana-turai/crowd-counting-csrnet/resolve/main/csrnet_best_part_a.pth" \
+  && echo "ok  models/csrnet_shta.pth"
+
+# Packed-stadium crowd clip (Pexels #14604722, free license)
+[ -f demo/crowd-morocco.mp4 ] || curl -sL --fail --max-time 300 \
+  -o demo/crowd-morocco.mp4 "https://www.pexels.com/download/video/14604722/" \
+  || echo "note: fetch demo/crowd-morocco.mp4 manually from pexels.com/video/14604722"
+
 echo "demo footage ready in demo/"

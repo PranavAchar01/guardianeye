@@ -2,9 +2,9 @@
 
 Usage: uv run python scripts/make_showcase.py
 Inputs (produced by the demo commands in DEMO.md):
-  out/stadium/annotated.mp4   crowd monitoring on real stadium footage
+  out/morocco/annotated.mp4   crowd monitoring on packed-stadium footage
   out/fall01/annotated.mp4    collapse detection on a Kinect depth recording
-Output: out/showcase.mp4 (1280x720, 30 fps, H.264)
+Output: out/showcase.mp4 (1920x1080, 30 fps, H.264)
 """
 
 from __future__ import annotations
@@ -15,7 +15,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1280, 720
+W, H = 1920, 1080
+SCALE = H / 720  # card text sizes below are specified in 720p units
 BG = (14, 16, 20)
 FG = (232, 232, 232)
 DIM = (150, 155, 165)
@@ -24,7 +25,7 @@ FONT = "/System/Library/Fonts/Helvetica.ttc"
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONT, size, index=1 if bold else 0)
+    return ImageFont.truetype(FONT, int(size * SCALE), index=1 if bold else 0)
 
 
 def card(path: Path, lines: list[tuple[str, int, tuple[int, int, int], bool]]) -> None:
@@ -35,7 +36,7 @@ def card(path: Path, lines: list[tuple[str, int, tuple[int, int, int], bool]]) -
     heights = []
     for text, size, _, bold in lines:
         box = d.textbbox((0, 0), text, font=font(size, bold))
-        heights.append(box[3] - box[1] + int(size * 0.55))
+        heights.append(box[3] - box[1] + int(size * SCALE * 0.55))
     y = (H - sum(heights)) // 2
     for (text, size, color, bold), lh in zip(lines, heights, strict=True):
         f = font(size, bold)
@@ -74,7 +75,7 @@ def card_segment(png: Path, mp4: Path, secs: float) -> None:
 
 
 def video_segment(src: Path, mp4: Path) -> None:
-    """Normalize any input to 1280x720@30 with pillarboxing."""
+    """Normalize any input to the target frame at 30 fps with pillarboxing."""
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
         f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=0x0e1014,fps=30,format=yuv420p"
@@ -102,9 +103,9 @@ def main() -> None:
     work = out / "showcase_parts"
     work.mkdir(parents=True, exist_ok=True)
 
-    stadium = out / "stadium" / "annotated.mp4"
+    crowd = out / "morocco" / "annotated.mp4"
     fall = out / "fall01" / "annotated.mp4"
-    for p in (stadium, fall):
+    for p in (crowd, fall):
         if not p.exists():
             sys.exit(f"missing input {p}; run the demo commands in DEMO.md first")
 
@@ -122,8 +123,8 @@ def main() -> None:
         [
             ("01  ·  CROWD MONITORING", 52, FG, True),
             ("", 16, FG, False),
-            ("Real stadium footage, Premier League, London", 32, DIM, False),
-            ("Live people/m2 density map, per-person tracking, monocular depth", 26, DIM, False),
+            ("Real footage: packed international football stadium", 32, DIM, False),
+            ("CSRNet crowd counting + live people/m2 density map + depth", 26, DIM, False),
         ],
     )
     card(
@@ -149,7 +150,7 @@ def main() -> None:
 
     card_segment(work / "c1.png", work / "s0.mp4", 4.0)
     card_segment(work / "c2.png", work / "s1.mp4", 3.0)
-    video_segment(stadium, work / "s2.mp4")
+    video_segment(crowd, work / "s2.mp4")
     card_segment(work / "c3.png", work / "s3.mp4", 3.0)
     video_segment(fall, work / "s4.mp4")
     card_segment(work / "c4.png", work / "s5.mp4", 5.0)

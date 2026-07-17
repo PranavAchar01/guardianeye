@@ -79,6 +79,13 @@ uv run guardianeye demo/pedestrians.avi -o out/peds --weights yolo11n.pt --thres
 uv run guardianeye demo/stadium-cut.mp4 -o out/stadium \
   --weights yolo11n.pt --imgsz 1280 --conf 0.25 --thresholds 0.5,1.2,2.0 --no-fall
 
+# Packed stands (thousands of fans, individuals ~5 px): CSRNet density-map
+# counting takes over where per-person detection physically cannot resolve
+# people; detections still calibrate the meters-per-pixel scale:
+uv run guardianeye demo/crowd-morocco.mp4 -o out/morocco \
+  --crowd-model models/csrnet_shta.pth --weights yolo11n.pt --imgsz 1920 \
+  --conf 0.2 --no-fall
+
 # Edge Watch on drone footage (people at height on a stadium structure):
 uv run guardianeye demo/drone-cut.mp4 -o out/drone \
   --edge-watch --no-fall --weights yolo11n.pt --imgsz 1280 --conf 0.25 --depth-every 4
@@ -107,6 +114,7 @@ depth inset), `report.html` (stats, sparklines, incident/crush tables),
 | `--imgsz N` | YOLO inference size; 1280 recovers small/distant people (default 640) |
 | `--no-fall` | disable collapse detection for dense-crowd cameras (density still runs) |
 | `--edge-watch` | drop-edge fall-off risk: depth-cliff hazard map + trajectory prediction |
+| `--crowd-model W.pth` | CSRNet density-map counting for packed stands beyond detection range |
 | `--device auto\|mps\|cuda\|cpu` | inference device |
 
 ## Verification

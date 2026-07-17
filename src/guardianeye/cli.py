@@ -77,6 +77,14 @@ def build_parser() -> argparse.ArgumentParser:
         "discontinuities + per-person trajectory prediction (needs depth)",
     )
     p.add_argument(
+        "--crowd-model",
+        type=Path,
+        default=None,
+        metavar="WEIGHTS.pth",
+        help="CSRNet weights for density-map crowd counting (packed stands "
+        "beyond per-person detection); see scripts/fetch_demo.sh",
+    )
+    p.add_argument(
         "--thresholds",
         type=_thresholds,
         default=DEFAULT_THRESHOLDS,
@@ -109,6 +117,7 @@ def main(argv: list[str] | None = None) -> None:
         confirm_s=args.confirm_secs,
         use_fall=not args.no_fall,
         edge_watch=args.edge_watch,
+        crowd_model=args.crowd_model,
     )
     main_from_cli(cfg)
 

@@ -40,8 +40,8 @@ class DensityGrid:
 
     @property
     def occupied_mean(self) -> float:
-        occ = self.density[self.counts > 0]
-        return float(occ.mean()) if occ.size else 0.0
+        occ = self.density[self.counts > 0.05]  # threshold tolerates fractional
+        return float(occ.mean()) if occ.size else 0.0  # crowd-model counts
 
     def cell_of(self, x: float, y: float) -> tuple[int, int]:
         return cell_of(x, y, self.cell_px, self.density.shape)
@@ -70,6 +70,17 @@ def block_mean(arr: np.ndarray, cell_px: int, gshape: tuple[int, int]) -> np.nda
         for c in range(cols):
             blk = arr[r * cell_px : (r + 1) * cell_px, c * cell_px : (c + 1) * cell_px]
             out[r, c] = blk.mean() if blk.size else 0.0
+    return out
+
+
+def block_sum(arr: np.ndarray, cell_px: int, gshape: tuple[int, int]) -> np.ndarray:
+    """Sum of `arr` over each grid cell (partial edge cells included)."""
+    rows, cols = gshape
+    out = np.zeros((rows, cols), dtype=np.float64)
+    for r in range(rows):
+        for c in range(cols):
+            blk = arr[r * cell_px : (r + 1) * cell_px, c * cell_px : (c + 1) * cell_px]
+            out[r, c] = blk.sum() if blk.size else 0.0
     return out
 
 
@@ -178,12 +189,20 @@ class DensityEstimator:
         persons: list[Person],
         distance: np.ndarray | None,
         frame_shape: tuple[int, ...],
+        count_map: np.ndarray | None = None,
     ) -> DensityGrid:
+        """Per-frame density. `count_map` (people-per-pixel, e.g. from a
+        crowd-counting model) replaces detection-based counting when packed
+        crowds are beyond per-person detection; detections still calibrate
+        the meters-per-pixel scale."""
         gshape = grid_shape(frame_shape, self.cell_px)
-        counts = np.zeros(gshape, dtype=np.float64)
-        for p in persons:
-            r, c = cell_of(*p.foot, self.cell_px, gshape)
-            counts[r, c] += 1.0
+        if count_map is not None:
+            counts = block_sum(count_map, self.cell_px, gshape)
+        else:
+            counts = np.zeros(gshape, dtype=np.float64)
+            for p in persons:
+                r, c = cell_of(*p.foot, self.cell_px, gshape)
+                counts[r, c] += 1.0
 
         mpp = mpp_grid(persons, distance, frame_shape, self.cell_px)
         if mpp.any():

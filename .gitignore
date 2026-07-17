@@ -10,3 +10,5 @@ demo/*.avi
 demo/*.webm
 demo/*.ogv
 .DS_Store
+site-suitability-gis/
+models/

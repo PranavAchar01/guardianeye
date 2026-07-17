@@ -63,6 +63,20 @@ def test_near_field_cells_below_resolution_are_not_classified():
     assert grid.max_density == 0.0
 
 
+def test_count_map_replaces_detection_counting():
+    """A crowd-model density map drives counts; detections still set scale."""
+    est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
+    distance = np.ones((96, 96), dtype=np.float32)
+    ruler = person_at(20, 30, 85.0)  # mpp = 0.02 m/px
+    count_map = np.zeros((96, 96), dtype=np.float32)
+    count_map[:48, 48:96] = 6.0 / (48 * 48)  # 6 people spread over cell (0,1)
+    grid = est.update([ruler], distance, (96, 96), count_map=count_map)
+    assert grid.counts[0, 1] == pytest.approx(6.0, rel=1e-5)
+    assert grid.counts[0, 0] == 0.0  # ruler no longer splatted as a count
+    expected = 6.0 / (48 * 0.02) ** 2
+    assert grid.density[0, 1] == pytest.approx(expected, rel=1e-5)
+
+
 def test_edge_cells_use_true_pixel_area():
     """A person in a half-width edge cell must not have their density halved."""
     est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
