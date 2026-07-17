@@ -74,7 +74,7 @@ def card_segment(png: Path, mp4: Path, secs: float) -> None:
     )
 
 
-def video_segment(src: Path, mp4: Path) -> None:
+def video_segment(src: Path, mp4: Path, max_secs: float | None = None) -> None:
     """Normalize any input to the target frame at 30 fps with pillarboxing."""
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
@@ -86,6 +86,7 @@ def video_segment(src: Path, mp4: Path) -> None:
             "-y",
             "-loglevel",
             "error",
+            *(["-t", str(max_secs)] if max_secs else []),
             "-i",
             str(src),
             "-vf",
@@ -150,7 +151,9 @@ def main() -> None:
 
     card_segment(work / "c1.png", work / "s0.mp4", 4.0)
     card_segment(work / "c2.png", work / "s1.mp4", 3.0)
-    video_segment(crowd, work / "s2.mp4")
+    # The crowd segment is rendered at 1/4 speed; keep the montage tight and
+    # ship the full-length version as a separate release asset.
+    video_segment(crowd, work / "s2.mp4", max_secs=36)
     card_segment(work / "c3.png", work / "s3.mp4", 3.0)
     video_segment(fall, work / "s4.mp4")
     card_segment(work / "c4.png", work / "s5.mp4", 5.0)
