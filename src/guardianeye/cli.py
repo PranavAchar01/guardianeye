@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from . import __version__
 from .risk import DEFAULT_THRESHOLDS
 
 
@@ -20,6 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="guardianeye",
         description="AI safety officer for stadium video: collapse detection "
         "(YOLO pose) + crowd-crush early warning (depth-calibrated density).",
+    )
+    p.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
     p.add_argument("input", type=Path, help="input video file")
     p.add_argument(
