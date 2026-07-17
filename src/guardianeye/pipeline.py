@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from . import density, render, report, risk
+from . import __version__, density, render, report, risk
 from .depth import split_sensor_frame
 from .detection import PersonDetector, stitch_ids
 from .fall import FallMonitor
@@ -96,6 +97,11 @@ def _h264_encode(raw: Path, final: Path) -> bool:
 
 def run(cfg: PipelineConfig) -> dict:
     cfg.outdir.mkdir(parents=True, exist_ok=True)
+    # Record the exact settings this run used, so any output directory is
+    # reproducible on its own without the original command line.
+    run_config = asdict(cfg)
+    run_config["guardianeye_version"] = __version__
+    (cfg.outdir / "config.json").write_text(json.dumps(run_config, indent=2, default=str))
     device = resolve_device(cfg.device)
     print(f"[guardianeye] device={device} input={cfg.input}", flush=True)
 
