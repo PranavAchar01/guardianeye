@@ -61,12 +61,13 @@ def heatmap_overlay(frame: np.ndarray, grid: DensityGrid, critical: float) -> np
 def draw_persons(
     frame: np.ndarray, persons: list[Person], levels: np.ndarray, grid: DensityGrid
 ) -> None:
+    show_ids = len(persons) <= 60  # ID labels become noise on dense crowds
     for p in persons:
         x1, y1, x2, y2 = (int(v) for v in p.box)
         r, c = grid.cell_of(*p.foot)
         color = LEVEL_COLORS_BGR[int(levels[r, c])]
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
-        if p.track_id is not None:
+        if show_ids and p.track_id is not None:
             cv2.putText(
                 frame,
                 str(p.track_id),

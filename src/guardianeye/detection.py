@@ -65,11 +65,84 @@ def stitch_ids(
     return out
 
 
+def tile_rects(
+    frame_shape: tuple[int, ...], rows: int, cols: int, overlap: float = 0.15
+) -> list[tuple[int, int, int, int]]:
+    """Overlapping tile rectangles (x0, y0, x1, y1) covering the frame.
+
+    Slicing lets the detector see small/distant people at native resolution
+    instead of shrinking the whole frame to the inference size (SAHI-style).
+    """
+    h, w = frame_shape[0], frame_shape[1]
+    th, tw = h / rows, w / cols
+    oy, ox = int(th * overlap), int(tw * overlap)
+    rects = []
+    for r in range(rows):
+        for c in range(cols):
+            y0 = max(int(r * th) - oy, 0)
+            y1 = min(int((r + 1) * th) + oy, h)
+            x0 = max(int(c * tw) - ox, 0)
+            x1 = min(int((c + 1) * tw) + ox, w)
+            rects.append((x0, y0, x1, y1))
+    return rects
+
+
+def merge_nms(boxes: np.ndarray, confs: np.ndarray, iou: float = 0.5) -> np.ndarray:
+    """Indices to keep after cross-tile NMS (duplicates live in overlaps)."""
+    import torch
+    from torchvision.ops import nms
+
+    keep = nms(
+        torch.from_numpy(boxes.astype(np.float32)),
+        torch.from_numpy(confs.astype(np.float32)),
+        iou,
+    )
+    return keep.numpy()
+
+
+class SimpleTracker:
+    """Greedy nearest-neighbor ID assignment for tiled detections.
+
+    ByteTrack can't run across independently-detected tiles, so tiled mode
+    tracks by center proximity: confident detections claim the nearest
+    previous-frame ID within `max_dist_px`; the rest get fresh IDs.
+    """
+
+    def __init__(self, max_dist_px: float = 48.0):
+        self.max_dist_px = max_dist_px
+        self._prev: dict[int, tuple[float, float]] = {}
+        self._next_id = 1
+
+    def update(self, persons: list[Person]) -> list[Person]:
+        out: list[Person] = []
+        new_prev: dict[int, tuple[float, float]] = {}
+        used: set[int] = set()
+        for p in sorted(persons, key=lambda q: q.conf, reverse=True):
+            cx, cy = p.center
+            best_id, best_d = None, self.max_dist_px
+            for tid, (px, py) in self._prev.items():
+                if tid in used:
+                    continue
+                d = float(np.hypot(cx - px, cy - py))
+                if d < best_d:
+                    best_id, best_d = tid, d
+            if best_id is None:
+                best_id = self._next_id
+                self._next_id += 1
+            used.add(best_id)
+            new_prev[best_id] = (cx, cy)
+            out.append(Person(box=p.box, conf=p.conf, track_id=best_id, keypoints=p.keypoints))
+        self._prev = new_prev
+        return out
+
+
 class PersonDetector:
     """Ultralytics YOLO wrapper returning tracked person detections.
 
     Defaults to a pose model so downstream posture classification gets
     keypoints; plain detection weights also work (keypoints stay None).
+    With `tiles=(rows, cols)` the frame is sliced into overlapping tiles so
+    small/distant people survive the resize to the inference size.
     """
 
     def __init__(
@@ -78,6 +151,7 @@ class PersonDetector:
         conf: float = 0.35,
         device: str = "cpu",
         imgsz: int = 640,
+        tiles: tuple[int, int] | None = None,
     ):
         from ultralytics import YOLO  # deferred: heavy import
 
@@ -85,8 +159,12 @@ class PersonDetector:
         self.conf = conf
         self.device = device
         self.imgsz = imgsz  # larger sizes recover small/distant people
+        self.tiles = tiles
+        self._tracker = SimpleTracker() if tiles else None
 
     def track(self, frame_bgr: np.ndarray) -> list[Person]:
+        if self.tiles is not None:
+            return self._track_tiled(frame_bgr)
         results = self.model.track(
             frame_bgr,
             persist=True,
@@ -126,3 +204,43 @@ class PersonDetector:
             )
             for n, (b, c, i) in enumerate(zip(boxes, confs, ids, strict=True))
         ]
+
+    def _track_tiled(self, frame_bgr: np.ndarray) -> list[Person]:
+        rows, cols = self.tiles  # type: ignore[misc]
+        all_boxes, all_confs = [], []
+        for x0, y0, x1, y1 in tile_rects(frame_bgr.shape, rows, cols):
+            res = self.model.predict(
+                frame_bgr[y0:y1, x0:x1],
+                classes=[0],
+                conf=self.conf,
+                imgsz=self.imgsz,
+                device=self.device,
+                verbose=False,
+                max_det=1500,
+            )[0]
+            if res.boxes is None or len(res.boxes) == 0:
+                continue
+            b = res.boxes.xyxy.cpu().numpy()
+            b[:, [0, 2]] += x0
+            b[:, [1, 3]] += y0
+            all_boxes.append(b)
+            all_confs.append(res.boxes.conf.cpu().numpy())
+        if not all_boxes:
+            return []
+        boxes = np.concatenate(all_boxes)
+        confs = np.concatenate(all_confs)
+        keep = merge_nms(boxes, confs)
+        persons = [
+            Person(
+                box=(
+                    float(boxes[i][0]),
+                    float(boxes[i][1]),
+                    float(boxes[i][2]),
+                    float(boxes[i][3]),
+                ),
+                conf=float(confs[i]),
+            )
+            for i in keep
+        ]
+        assert self._tracker is not None
+        return self._tracker.update(persons)

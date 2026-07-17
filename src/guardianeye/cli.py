@@ -9,6 +9,18 @@ from . import __version__
 from .risk import DEFAULT_THRESHOLDS
 
 
+def _parse_tiles(text: str | None) -> tuple[int, int] | None:
+    if text is None:
+        return None
+    try:
+        rows, cols = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        raise SystemExit(f"--tiles expects RxC, e.g. 3x2 (got {text!r})") from None
+    if rows < 1 or cols < 1:
+        raise SystemExit("--tiles values must be >= 1")
+    return (rows, cols)
+
+
 def _thresholds(text: str) -> tuple[float, float, float]:
     parts = [float(p) for p in text.split(",")]
     if len(parts) != 3 or sorted(parts) != parts:
@@ -22,9 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="AI safety officer for stadium video: collapse detection "
         "(YOLO pose) + crowd-crush early warning (depth-calibrated density).",
     )
-    p.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
-    )
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("input", type=Path, help="input video file")
     p.add_argument(
         "-o", "--outdir", type=Path, default=Path("out"), help="output directory (default: out/)"
@@ -77,6 +87,20 @@ def build_parser() -> argparse.ArgumentParser:
         "discontinuities + per-person trajectory prediction (needs depth)",
     )
     p.add_argument(
+        "--tiles",
+        default=None,
+        metavar="RxC",
+        help="sliced inference grid, e.g. 3x2: detect per overlapping tile so "
+        "small/distant people survive the inference resize (slower, thorough)",
+    )
+    p.add_argument(
+        "--slowmo",
+        type=float,
+        default=1.0,
+        help="slow the output video by this factor (e.g. 4 plays at 1/4 speed) "
+        "so per-person annotations are readable frame by frame",
+    )
+    p.add_argument(
         "--crowd-model",
         type=Path,
         default=None,
@@ -118,6 +142,8 @@ def main(argv: list[str] | None = None) -> None:
         use_fall=not args.no_fall,
         edge_watch=args.edge_watch,
         crowd_model=args.crowd_model,
+        tiles=_parse_tiles(args.tiles),
+        slowmo=args.slowmo,
     )
     main_from_cli(cfg)
 

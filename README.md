@@ -81,10 +81,13 @@ uv run guardianeye demo/stadium-cut.mp4 -o out/stadium \
 
 # Packed stands (thousands of fans, individuals ~5 px): CSRNet density-map
 # counting takes over where per-person detection physically cannot resolve
-# people; detections still calibrate the meters-per-pixel scale:
+# people; detections still calibrate the meters-per-pixel scale. YOLO11x +
+# sliced (tiled) inference boxes every fan the detector can resolve, and
+# --slowmo 4 writes the output at quarter speed so each annotation is
+# readable (offline forensic mode, ~3.5 s/frame):
 uv run guardianeye demo/crowd-morocco.mp4 -o out/morocco \
-  --crowd-model models/csrnet_shta.pth --weights yolo11n.pt --imgsz 1920 \
-  --conf 0.2 --no-fall
+  --crowd-model models/csrnet_shta.pth --weights yolo11x.pt --tiles 3x2 \
+  --imgsz 1280 --conf 0.15 --no-fall --slowmo 4
 
 # Edge Watch on drone footage (people at height on a stadium structure):
 uv run guardianeye demo/drone-cut.mp4 -o out/drone \
@@ -115,6 +118,8 @@ depth inset), `report.html` (stats, sparklines, incident/crush tables),
 | `--no-fall` | disable collapse detection for dense-crowd cameras (density still runs) |
 | `--edge-watch` | drop-edge fall-off risk: depth-cliff hazard map + trajectory prediction |
 | `--crowd-model W.pth` | CSRNet density-map counting for packed stands beyond detection range |
+| `--tiles RxC` | sliced inference: detect per overlapping tile so small people survive the resize |
+| `--slowmo F` | write output at 1/F speed so dense-crowd annotations are readable |
 | `--device auto\|mps\|cuda\|cpu` | inference device |
 
 ## Verification

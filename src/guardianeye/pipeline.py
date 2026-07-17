@@ -44,6 +44,9 @@ class PipelineConfig:
     crowd_model: Path | None = None  # CSRNet weights: density-map counting for
     # packed crowds beyond per-person detection
     crowd_every: int = 4  # recompute the crowd count map every N frames
+    tiles: tuple[int, int] | None = None  # sliced inference (rows, cols) so the
+    # detector sees small/distant people at native resolution
+    slowmo: float = 1.0  # write output at source_fps / slowmo (playback slowdown)
 
 
 @dataclass
@@ -120,7 +123,9 @@ def run(cfg: PipelineConfig) -> dict:
     if cfg.max_frames:
         total = min(total, cfg.max_frames)
 
-    detector = PersonDetector(weights=cfg.weights, conf=cfg.conf, device=device, imgsz=cfg.imgsz)
+    detector = PersonDetector(
+        weights=cfg.weights, conf=cfg.conf, device=device, imgsz=cfg.imgsz, tiles=cfg.tiles
+    )
     depth_estimator = None
     if cfg.use_depth and cfg.sensor_depth == "none":
         try:
@@ -154,7 +159,10 @@ def run(cfg: PipelineConfig) -> dict:
         crowd = CrowdCounter(str(cfg.crowd_model), device=device)
 
     raw_path = cfg.outdir / "annotated_raw.mp4"
-    writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    out_fps = max(fps / max(cfg.slowmo, 1.0), 1.0)  # slow playback, not skipped frames
+    writer = cv2.VideoWriter(
+        str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (width, height)
+    )
     if not writer.isOpened():
         raise SystemExit(f"cannot open video writer: {raw_path}")
 
