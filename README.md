@@ -1,5 +1,10 @@
 # GuardianEye 🏟️
 
+[![CI](https://github.com/PranavAchar01/guardianeye/actions/workflows/ci.yml/badge.svg)](https://github.com/PranavAchar01/guardianeye/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 **The AI safety officer for stadiums.** Real-time collapse detection and
 crowd-crush early warning from any elevated camera or drone feed — YOLO pose
 estimation fused with a depth channel (hardware sensor or monocular model).
