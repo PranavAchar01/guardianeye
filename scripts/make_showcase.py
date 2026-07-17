@@ -74,7 +74,9 @@ def card_segment(png: Path, mp4: Path, secs: float) -> None:
     )
 
 
-def video_segment(src: Path, mp4: Path, max_secs: float | None = None) -> None:
+def video_segment(
+    src: Path, mp4: Path, max_secs: float | None = None, start_secs: float | None = None
+) -> None:
     """Normalize any input to the target frame at 30 fps with pillarboxing."""
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
@@ -86,6 +88,7 @@ def video_segment(src: Path, mp4: Path, max_secs: float | None = None) -> None:
             "-y",
             "-loglevel",
             "error",
+            *(["-ss", str(start_secs)] if start_secs else []),
             *(["-t", str(max_secs)] if max_secs else []),
             "-i",
             str(src),
@@ -106,7 +109,8 @@ def main() -> None:
 
     crowd = out / "morocco" / "annotated.mp4"
     fall = out / "fall01" / "annotated.mp4"
-    for p in (crowd, fall):
+    edge = out / "drone" / "annotated.mp4"
+    for p in (crowd, fall, edge):
         if not p.exists():
             sys.exit(f"missing input {p}; run the demo commands in DEMO.md first")
 
@@ -140,6 +144,15 @@ def main() -> None:
     card(
         work / "c4.png",
         [
+            ("03  ·  EDGE WATCH", 52, FG, True),
+            ("", 16, FG, False),
+            ("Drone above the stadium: will anyone fall off?", 32, DIM, False),
+            ("Depth-cliff hazard map + trajectory prediction + time-to-edge", 26, DIM, False),
+        ],
+    )
+    card(
+        work / "c5.png",
+        [
             ("Every stadium already owns the cameras.", 40, FG, True),
             ("GuardianEye is the software that watches back.", 40, FG, True),
             ("", 20, FG, False),
@@ -156,10 +169,13 @@ def main() -> None:
     video_segment(crowd, work / "s2.mp4", max_secs=36)
     card_segment(work / "c3.png", work / "s3.mp4", 3.0)
     video_segment(fall, work / "s4.mp4")
-    card_segment(work / "c4.png", work / "s5.mp4", 5.0)
+    card_segment(work / "c4.png", work / "s5.mp4", 3.0)
+    # Edge segment: overhead deck shot through both confirmed fall-risk alerts.
+    video_segment(edge, work / "s6.mp4", start_secs=10, max_secs=17)
+    card_segment(work / "c5.png", work / "s7.mp4", 5.0)
 
     concat = work / "list.txt"
-    concat.write_text("".join(f"file 's{i}.mp4'\n" for i in range(6)))
+    concat.write_text("".join(f"file 's{i}.mp4'\n" for i in range(8)))
     run(
         [
             "ffmpeg",
