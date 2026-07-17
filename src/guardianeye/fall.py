@@ -67,7 +67,7 @@ def posture_of(person: Person, frame_shape: tuple[int, ...] | None = None) -> st
 
     Without keypoints the aspect bar is higher, and a wide box clipped by the
     bottom frame edge (a partial body, feet out of frame) is never called
-    lying — pass `frame_shape` to enable that guard.
+    lying; pass `frame_shape` to enable that guard.
     """
     x1, y1, x2, y2 = person.box
     w, h = x2 - x1, y2 - y1

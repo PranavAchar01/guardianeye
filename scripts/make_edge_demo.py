@@ -20,7 +20,7 @@ def main() -> None:
     work.mkdir(parents=True, exist_ok=True)
     src = out / "drone" / "annotated.mp4"
     if not src.exists():
-        sys.exit(f"missing {src} — run the edge-watch demo command in DEMO.md first")
+        sys.exit(f"missing {src}; run the edge-watch demo command in DEMO.md first")
 
     card(
         work / "c1.png",

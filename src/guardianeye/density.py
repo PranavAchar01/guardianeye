@@ -3,8 +3,8 @@
 Scale recovery: every detected person is a ruler. Assuming a mean standing
 height of REF_HEIGHT_M, the meters-per-pixel (mpp) at a person's location is
 REF_HEIGHT_M / bbox_height_px. The depth map extends that sparse scale to the
-whole frame — under a pinhole camera the pixel footprint grows linearly with
-distance — yielding real-world cell areas and therefore absolute density.
+whole frame; under a pinhole camera the pixel footprint grows linearly with
+distance, yielding real-world cell areas and therefore absolute density.
 
 Pure NumPy on tiny grids (~12x16); no ML dependencies, fully unit-testable.
 """

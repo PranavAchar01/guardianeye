@@ -106,7 +106,7 @@ def main() -> None:
     fall = out / "fall01" / "annotated.mp4"
     for p in (stadium, fall):
         if not p.exists():
-            sys.exit(f"missing input {p} — run the demo commands in DEMO.md first")
+            sys.exit(f"missing input {p}; run the demo commands in DEMO.md first")
 
     card(
         work / "c1.png",
@@ -120,16 +120,16 @@ def main() -> None:
     card(
         work / "c2.png",
         [
-            ("01  —  CROWD MONITORING", 52, FG, True),
+            ("01  ·  CROWD MONITORING", 52, FG, True),
             ("", 16, FG, False),
-            ("Real stadium footage — Premier League, London", 32, DIM, False),
+            ("Real stadium footage, Premier League, London", 32, DIM, False),
             ("Live people/m2 density map, per-person tracking, monocular depth", 26, DIM, False),
         ],
     )
     card(
         work / "c3.png",
         [
-            ("02  —  COLLAPSE DETECTION", 52, FG, True),
+            ("02  ·  COLLAPSE DETECTION", 52, FG, True),
             ("", 16, FG, False),
             ("Real Kinect depth sensor + YOLO pose (UR Fall dataset)", 32, DIM, False),
             ("Person down  ->  sustained-down confirmation  ->  zone alert", 26, DIM, False),
@@ -141,7 +141,7 @@ def main() -> None:
             ("Every stadium already owns the cameras.", 40, FG, True),
             ("GuardianEye is the software that watches back.", 40, FG, True),
             ("", 20, FG, False),
-            ("~23 fps on a MacBook  ·  anonymous by design — no faces stored", 27, DIM, False),
+            ("~23 fps on a MacBook  ·  anonymous by design, no faces stored", 27, DIM, False),
             ("", 14, FG, False),
             ("github.com/PranavAchar01/guardianeye", 30, RED, False),
         ],

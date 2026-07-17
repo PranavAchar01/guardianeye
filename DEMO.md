@@ -1,9 +1,9 @@
-# GuardianEye — 3-minute demo script
+# GuardianEye: 3-minute demo script
 
 ## The hook (30s)
 
 > "80,000 people in a stadium. One cardiac arrest in row 47. Survival drops
-> 10% every minute without CPR — and today, medics find out when someone
+> 10% every minute without CPR, and today, medics find out when someone
 > waves. Kanjuruhan Stadium, 2022: 135 people died in a crowd crush the
 > cameras watched happen. GuardianEye is the AI safety officer that watches
 > back."
@@ -19,7 +19,7 @@
    ```
 
    Point at: person tracked → falls → red ring + down-timer → sustained-down
-   confirmation → "MEDICAL EMERGENCY — ZONE E4" banner. The zone is what a
+   confirmation → "MEDICAL EMERGENCY - ZONE E4" banner. The zone is what a
    steward radios. The depth inset is the sensor channel.
 
 2. **Crowd density risk map** (elevated camera, monocular depth):
@@ -38,7 +38,7 @@
   place (crush), or one body on the ground (collapse).
 - **Self-calibrating**: every detected person is a 1.7 m ruler; depth
   (sensor or monocular) spreads that scale across the frame. No site survey.
-- **Runs at the edge**: ~23 fps on a MacBook — faster than the camera.
+- **Runs at the edge**: ~23 fps on a MacBook, faster than the camera.
   No cloud, no latency, no footage leaving the venue.
 - **Privacy is the feature**: no faces identified, no identities stored.
   That's what makes it deployable under GDPR/CCPA at a real venue.
