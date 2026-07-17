@@ -12,3 +12,6 @@ demo/*.ogv
 .DS_Store
 site-suitability-gis/
 models/
+node_modules/
+package.json
+package-lock.json
