@@ -22,15 +22,19 @@
    confirmation → "MEDICAL EMERGENCY - ZONE E4" banner. The zone is what a
    steward radios. The depth inset is the sensor channel.
 
-2. **Crowd density risk map** (elevated camera, monocular depth):
+2. **Packed-stadium crowd counting + density risk map** (CSRNet + depth):
 
    ```bash
-   uv run guardianeye demo/pedestrians.avi -o out/peds --weights yolo11n.pt --thresholds 0.6,1.2,2.0
-   open out/peds/report.html
+   uv run guardianeye demo/crowd-morocco.mp4 -o out/morocco \
+     --crowd-model models/csrnet_shta.pth --weights yolo11n.pt --imgsz 1920 \
+     --conf 0.2 --no-fall
+   open out/morocco/report.html
    ```
 
-   Point at: per-person tracking IDs, live people/m² heatmap, depth inset
-   estimated from a single lens, zero false medical alerts over 795 frames.
+   Point at: the live headcount (~1,700-2,700 fans in frame), the people/m²
+   heatmap over the stands, and the depth inset — all from one phone-grade
+   camera. Per-person detection can't resolve a 5 px fan; the density-map
+   model counts them anyway, and detections calibrate the real-world scale.
 
 ## Why it wins (60s)
 
