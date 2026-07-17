@@ -1,6 +1,6 @@
 """Edge-fall risk: depth-cliff hazards + per-person trajectory prediction.
 
-"Will anyone fall off?" — from an aerial view, a drop edge is a sharp
+"Will anyone fall off?" From an aerial view, a drop edge is a sharp
 discontinuity in the depth map (beam ends, tier rails, roof openings: the
 ground beyond is suddenly much farther away). Each tracked person gets a
 velocity vector; walking toward a cliff yields a predicted time-to-edge, and

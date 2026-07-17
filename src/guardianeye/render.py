@@ -14,7 +14,7 @@ from .fall import Incident
 from .risk import LEVEL_COLORS_BGR, LEVELS, Zone
 
 HUD_H = 40
-_HEAT_STOPS = [  # (position, BGR) — transparent-green through red
+_HEAT_STOPS = [  # (position, BGR): transparent-green through red
     (0.00, (60, 120, 40)),
     (0.30, (60, 190, 70)),
     (0.55, (0, 215, 255)),
@@ -43,7 +43,7 @@ def heatmap_overlay(frame: np.ndarray, grid: DensityGrid, critical: float) -> np
     h, w = frame.shape[:2]
     norm = np.clip(grid.density / max(critical, 1e-6), 0.0, 1.0)
     # Upscale to the grid's true pixel extent (edge cells may overhang the
-    # frame), then crop — resizing straight to (w, h) would shift the heat
+    # frame), then crop; resizing straight to (w, h) would shift the heat
     # relative to the people and zone boxes whenever cell_px doesn't divide
     # the frame dimensions.
     rows, cols = norm.shape

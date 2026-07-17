@@ -19,9 +19,7 @@ from __future__ import annotations
 import argparse
 import math
 import random
-import shutil
 import subprocess
-import sys
 import wave
 from array import array
 from pathlib import Path
@@ -599,7 +597,8 @@ def render_intro_factory() -> callable:
 
 
 def rounded_panel(image: Image.Image, size: tuple[int, int], radius: int = 26) -> Image.Image:
-    panel = ImageOps.fit(image.convert("RGB"), size, method=Image.Resampling.LANCZOS).convert("RGBA")
+    fitted = ImageOps.fit(image.convert("RGB"), size, method=Image.Resampling.LANCZOS)
+    panel = fitted.convert("RGBA")
     mask = Image.new("L", size, 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0], size[1]), radius=radius, fill=255)
     panel.putalpha(mask)
@@ -659,7 +658,9 @@ def render_synthesis_factory() -> callable:
             center_y = int(center_y + (target_y - center_y) * converge)
             pw = int(base_w * (1.0 - 0.72 * converge))
             ph = int(base_h * (1.0 - 0.72 * converge))
-            panel = rounded_panel(src, (max(8, pw), max(8, ph)), radius=max(5, int(24 * (1 - converge))))
+            panel = rounded_panel(
+                src, (max(8, pw), max(8, ph)), radius=max(5, int(24 * (1 - converge)))
+            )
             if fade_panels < 1:
                 panel.putalpha(panel.getchannel("A").point(lambda a: int(a * fade_panels)))
             x, y = center_x - pw // 2, center_y - ph // 2
@@ -673,7 +674,8 @@ def render_synthesis_factory() -> callable:
 
             # Wordless risk glyphs live on top of the real footage.
             if idx == 0 and converge < 0.65:
-                for gx, gy, rr in ((x + 80, y + 200, 26), (x + 145, y + 250, 34), (x + 240, y + 205, 29)):
+                glyphs = ((x + 80, y + 200, 26), (x + 145, y + 250, 34), (x + 240, y + 205, 29))
+                for gx, gy, rr in glyphs:
                     ld.ellipse((gx - rr, gy - rr, gx + rr, gy + rr),
                                outline=rgba(AMBER, int(170 * fade_panels)), width=3)
             elif idx == 1 and converge < 0.65:

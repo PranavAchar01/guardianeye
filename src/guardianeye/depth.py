@@ -2,7 +2,7 @@
 
 A hardware depth sensor (stereo rig, LiDAR) delivers per-pixel distance; for
 prerecorded aerial video we recover the same signal from a monocular depth
-model. Downstream code only needs *relative* distance — absolute scale is
+model. Downstream code only needs *relative* distance; absolute scale is
 calibrated from detected body heights in the density module.
 """
 
