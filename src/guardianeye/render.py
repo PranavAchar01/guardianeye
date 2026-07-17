@@ -277,15 +277,21 @@ def draw_incidents(frame: np.ndarray, incidents: list[Incident], t: float, frame
         )
 
 
-def draw_depth_inset(frame: np.ndarray, distance: np.ndarray | None, scale: float = 0.24) -> None:
-    """Picture-in-picture view of the depth channel, bottom-right."""
+def draw_depth_inset(frame: np.ndarray, distance: np.ndarray | None, scale: float = 0.28) -> None:
+    """Picture-in-picture view of the depth channel, bottom-right.
+
+    Percentile normalization + histogram equalization: telephoto scenes pack
+    their depth variation into a narrow band, and a plain min-max colormap
+    renders them as a featureless gradient in a small inset.
+    """
     if distance is None:
         return
     h, w = frame.shape[:2]
     iw, ih = int(w * scale), int(h * scale)
-    lo, hi = float(distance.min()), float(distance.max())
-    norm = (distance - lo) / (hi - lo) if hi > lo else np.zeros_like(distance)
-    vis = cv2.applyColorMap(((1 - norm) * 255).astype(np.uint8), cv2.COLORMAP_MAGMA)
+    lo, hi = (float(v) for v in np.percentile(distance, (2.0, 98.0)))
+    norm = np.zeros_like(distance) if hi <= lo else np.clip((distance - lo) / (hi - lo), 0.0, 1.0)
+    u8 = cv2.equalizeHist(((1 - norm) * 255).astype(np.uint8))
+    vis = cv2.applyColorMap(u8, cv2.COLORMAP_MAGMA)
     vis = cv2.resize(vis, (iw, ih), interpolation=cv2.INTER_AREA)
     x0, y0 = w - iw - 8, h - ih - 8
     frame[y0 : y0 + ih, x0 : x0 + iw] = vis

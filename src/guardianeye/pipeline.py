@@ -28,6 +28,7 @@ class PipelineConfig:
     imgsz: int = 640
     cell_px: int = 48
     depth_every: int = 8  # recompute the monocular depth map every N frames
+    depth_model: str = "small"  # Depth Anything V2 size alias or HF model id
     use_depth: bool = True
     sensor_depth: str = "none"  # "left"/"right": pane of a side-by-side sensor capture
     thresholds: tuple[float, float, float] = risk.DEFAULT_THRESHOLDS
@@ -131,7 +132,7 @@ def run(cfg: PipelineConfig) -> dict:
         try:
             from .depth import DepthEstimator
 
-            depth_estimator = DepthEstimator(device=device)
+            depth_estimator = DepthEstimator(device=device, model_id=cfg.depth_model)
         except Exception as e:  # noqa: BLE001 - degrade gracefully, keep processing
             print(
                 f"[guardianeye] depth model unavailable ({e}); "

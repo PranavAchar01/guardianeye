@@ -87,7 +87,7 @@ uv run guardianeye demo/stadium-cut.mp4 -o out/stadium \
 # readable (offline forensic mode, ~3.5 s/frame):
 uv run guardianeye demo/crowd-morocco.mp4 -o out/morocco \
   --crowd-model models/csrnet_shta.pth --weights yolo11x.pt --tiles 3x2 \
-  --imgsz 1280 --conf 0.15 --no-fall --slowmo 4
+  --imgsz 1280 --conf 0.15 --no-fall --slowmo 4 --depth-model large
 
 # Edge Watch on drone footage (people at height on a stadium structure):
 uv run guardianeye demo/drone-cut.mp4 -o out/drone \
@@ -111,6 +111,7 @@ depth inset), `report.html` (stats, sparklines, incident/crush tables),
 |---|---|
 | `--sensor-depth left\|right` | use a real depth pane from a side-by-side capture instead of the monocular model |
 | `--no-depth` | skip depth entirely; scale comes from body heights only |
+| `--depth-model small\|base\|large` | Depth Anything V2 size; large is strongest (~3x slower) |
 | `--thresholds T1,T2,T3` | density boundaries in people/m² (default 2, 3.5, 5; literature values) |
 | `--confirm-secs S` | continuous down-time before a medical incident confirms (default 2.0) |
 | `--weights W` | any Ultralytics model; pose weights enable posture detection |

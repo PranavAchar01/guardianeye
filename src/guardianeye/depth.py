@@ -10,14 +10,28 @@ from __future__ import annotations
 
 import numpy as np
 
-MODEL_ID = "depth-anything/Depth-Anything-V2-Small-hf"
+# Size aliases for the Depth Anything V2 family. "small" is the real-time
+# default; "large" (335M params) is the strongest and sharpest, ~3x slower.
+MODEL_IDS = {
+    "small": "depth-anything/Depth-Anything-V2-Small-hf",
+    "base": "depth-anything/Depth-Anything-V2-Base-hf",
+    "large": "depth-anything/Depth-Anything-V2-Large-hf",
+}
+MODEL_ID = MODEL_IDS["small"]
+
+
+def resolve_depth_model(name: str) -> str:
+    """Map a size alias to its HF model id; pass explicit ids through."""
+    return MODEL_IDS.get(name.lower(), name)
 
 
 class DepthEstimator:
     def __init__(self, device: str = "cpu", model_id: str = MODEL_ID):
         from transformers import pipeline as hf_pipeline  # deferred: heavy import
 
-        self.pipe = hf_pipeline("depth-estimation", model=model_id, device=device)
+        self.pipe = hf_pipeline(
+            "depth-estimation", model=resolve_depth_model(model_id), device=device
+        )
 
     def relative_distance(self, frame_bgr: np.ndarray) -> np.ndarray:
         """Return an (H, W) float32 map of relative distance.

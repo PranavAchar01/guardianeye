@@ -57,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--depth-every", type=int, default=8, help="recompute depth every N frames (default 8)"
     )
     p.add_argument(
+        "--depth-model",
+        default="small",
+        help="Depth Anything V2 size (small|base|large) or an explicit HF model "
+        "id; large is the strongest (default: small)",
+    )
+    p.add_argument(
         "--no-depth",
         action="store_true",
         help="skip the depth model; calibrate scale from body heights only",
@@ -133,6 +139,7 @@ def main(argv: list[str] | None = None) -> None:
         imgsz=args.imgsz,
         cell_px=args.cell_px,
         depth_every=args.depth_every,
+        depth_model=args.depth_model,
         use_depth=not args.no_depth,
         sensor_depth=args.sensor_depth,
         thresholds=args.thresholds,

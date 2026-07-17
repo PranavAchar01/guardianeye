@@ -63,6 +63,14 @@ def test_near_field_cells_below_resolution_are_not_classified():
     assert grid.max_density == 0.0
 
 
+def test_depth_model_alias_resolution():
+    from guardianeye.depth import resolve_depth_model
+
+    assert resolve_depth_model("large") == "depth-anything/Depth-Anything-V2-Large-hf"
+    assert resolve_depth_model("SMALL") == "depth-anything/Depth-Anything-V2-Small-hf"
+    assert resolve_depth_model("org/custom-model") == "org/custom-model"
+
+
 def test_count_map_replaces_detection_counting():
     """A crowd-model density map drives counts; detections still set scale."""
     est = DensityEstimator(cell_px=48, ema_alpha=1.0, smooth_sigma=0.0)
