@@ -228,7 +228,93 @@ async function iconPng(Icon, color) {
     fontSize: 11.5, italic: true, color: DIM, align: "center",
   });
 
-  // ---- 6. Close: full-bleed hazard frame --------------------------------
+  // ---- 6. Making the models work: tuning wins ---------------------------
+  s = pres.addSlide();
+  s.background = { color: BG };
+  s.addText("Making the models work on real footage", {
+    x: 0.9, y: 0.5, w: 11.5, h: 0.8, margin: 0, fontSize: 32, bold: true, color: FG,
+  });
+  s.addText(
+    "Off-the-shelf models failed on a packed stadium. Four fixes, each measured on the actual demo clip:",
+    { x: 0.9, y: 1.22, w: 11.5, h: 0.4, margin: 0, fontSize: 14, color: DIM }
+  );
+
+  const tuning = [
+    {
+      metric: "21 → 85",
+      mlabel: "people boxed / frame",
+      header: "DETECTION AT SCALE",
+      problem: "nano & pose models found ~21 fans (pose: zero) in a 2,000-strong stand.",
+      fix: "YOLO11x + SAHI-style 3×2 tiled inference, cross-tile NMS, greedy tracker.",
+    },
+    {
+      metric: "2,697",
+      mlabel: "fans counted live",
+      header: "COUNTING THE UNRESOLVABLE",
+      problem: "a 5-px fan can't be boxed at all — detection alone undercounts wildly.",
+      fix: "CSRNet density maps; caught a 64× mass-scale bug, verified 2.2 → 140 on a crop.",
+    },
+    {
+      metric: "8.4 → 4.7",
+      mlabel: "p/m², now physically real",
+      header: "DEPTH THAT MEANS SOMETHING",
+      problem: "Depth-Small + min-max colormap: flat map, density spiked to a false CRITICAL.",
+      fix: "Depth Anything V2 Large + percentile / histogram-equalized normalization.",
+    },
+    {
+      metric: "→ 0",
+      mlabel: "false edge alarms",
+      header: "ALERTS THAT DON'T CRY WOLF",
+      problem: "a moving drone made every still fan appear to drift toward an edge.",
+      fix: "optical-flow ego-motion compensation + sustained-frame confirmation gate.",
+    },
+  ];
+  tuning.forEach((c, i) => {
+    const cx = 0.9 + (i % 2) * 5.82;
+    const cy = 1.75 + Math.floor(i / 2) * 2.6;
+    const w = 5.7;
+    s.addShape(pres.ShapeType.roundRect, {
+      x: cx, y: cy, w, h: 2.45, fill: { color: CARD }, rectRadius: 0.12, line: { type: "none" },
+    });
+    s.addText(c.metric, {
+      x: cx + 0.2, y: cy + 0.45, w: 1.85, h: 0.7, margin: 0,
+      fontSize: 24, bold: true, color: RED, align: "center",
+    });
+    s.addText(c.mlabel, {
+      x: cx + 0.15, y: cy + 1.18, w: 1.95, h: 0.7, margin: 0,
+      fontSize: 10.5, color: DIM, align: "center",
+    });
+    s.addText(c.header, {
+      x: cx + 2.2, y: cy + 0.28, w: w - 2.45, h: 0.4, margin: 0,
+      fontSize: 14, bold: true, color: FG,
+    });
+    s.addText(
+      [
+        { text: "Problem  ", options: { bold: true, color: DIM } },
+        { text: c.problem, options: { color: DIM } },
+      ],
+      { x: cx + 2.2, y: cy + 0.78, w: w - 2.45, h: 0.72, margin: 0, fontSize: 11.5, valign: "top" }
+    );
+    s.addText(
+      [
+        { text: "Fix  ", options: { bold: true, color: RED } },
+        { text: c.fix, options: { color: FG } },
+      ],
+      { x: cx + 2.2, y: cy + 1.5, w: w - 2.45, h: 0.85, margin: 0, fontSize: 11.5, valign: "top" }
+    );
+  });
+  s.addText(
+    "Every number is measured on the real demo footage — 59 unit tests lock the thresholds in place.",
+    { x: 0.9, y: 7.02, w: 11.5, h: 0.4, margin: 0, fontSize: 12, italic: true, color: DIM }
+  );
+  s.addNotes(
+    "The interesting engineering isn't the models, it's making them survive real footage: " +
+    "tiled inference to see 5-px fans, a density-map head to count the unresolvable, a 64x " +
+    "calibration bug we caught by hand, a stronger depth model with fixed contrast, and " +
+    "ego-motion compensation so a moving drone doesn't cry wolf."
+  );
+
+  // ---- 7. Close: full-bleed hazard frame --------------------------------
   s = pres.addSlide();
   s.background = { path: A("edge.png") };
   veil(s, 22);
